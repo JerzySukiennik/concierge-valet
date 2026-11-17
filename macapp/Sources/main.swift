@@ -9,6 +9,7 @@ enum Config {
     static let api = env["VALET_API"] ?? "https://concierge-valet-api.kalakasanyt.workers.dev"
     static let devURL = env["VALET_URL"]
     static let port: UInt16 = 21420
+    static let stripHeight: CGFloat = 52
     static var token: String { env["VALET_TOKEN"] ?? UserDefaults.standard.string(forKey: "token") ?? "" }
     static let background = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -82,6 +83,14 @@ final class FileServer {
     }
 }
 
+final class DragStrip: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 { window?.performZoom(nil) } else { window?.performDrag(with: event) }
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, UNUserNotificationCenterDelegate {
     private var window: NSWindow!
     private var web: WKWebView!
@@ -131,7 +140,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         window.minSize = NSSize(width: 860, height: 560)
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.contentView = web
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 1180, height: 760))
+        web.frame = root.bounds
+        root.addSubview(web)
+        let strip = DragStrip(frame: NSRect(x: 0, y: root.bounds.height - Config.stripHeight, width: root.bounds.width, height: Config.stripHeight))
+        strip.autoresizingMask = [.width, .minYMargin]
+        root.addSubview(strip)
+        window.contentView = root
         window.center()
         window.setFrameAutosaveName("ValetMain")
 
