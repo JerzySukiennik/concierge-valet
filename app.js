@@ -2,7 +2,7 @@
 import { TYPES, SWATCHES, defaults, mount, watch, look, poke, setState } from "./avatar.js";
 import { RM, anim, stagger, crossText, pressFeedback } from "./motion.js";
 import { createSheet, makePage } from "./sheet.js";
-import { CARD_KINDS, card as connectorCard, openImage, thumb } from "./cards.js";
+import { CARD_KINDS, agendaNode, card as connectorCard, openImage, thumb } from "./cards.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 const devPort = /^\d{4,5}$/.test(new URLSearchParams(location.search).get("api") || "") ? new URLSearchParams(location.search).get("api") : "8790";
@@ -77,6 +77,8 @@ function md(text) {
 
 const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1).replace(".", ",")} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const isImage = (f) => String(f?.mime || "").startsWith("image/");
+const NUDGES = [[0, "Wyłączone"], [10, "10 min"], [15, "15 min"], [30, "30 min"], [60, "1 godz."]];
+const nudgeName = (n) => (NUDGES.find(([v]) => v === n) || NUDGES[0])[1];
 const cards = {
   link: (id) => api("/api/file/link", { id, hold: true }).then((d) => d.url),
   post: (path, body) => api(path, body),
@@ -213,6 +215,7 @@ function nodes(m, join) {
   if (m.kind === "brief") {
     const card = el("div", "card brief", `<h3>${esc(m.data?.title || "Brief")}</h3><div class="text">${md(m.text)}</div>`);
     card.dataset.id = m.id;
+    if (m.data?.agenda) { const box = el("div", "sky-box"); box.append(agendaNode(m.data.agenda, { empty: false })); card.append(box); }
     if (m.data?.sky) { const box = el("div", "sky-box"); box.append(skyNode(m.data.sky)); card.append(box); }
     if (m.data?.week) card.append(el("div", "week", m.data.week.map((d) => `<div><span>${weekday.format(new Date(`${d.day}T12:00`))}</span><b>${d.max}°</b><span>${d.min}°</span><i style="--o:${(d.rain / 100).toFixed(2)}"></i></div>`).join("")));
     out.push(card);
@@ -309,6 +312,13 @@ function addMsg(m, animate = true) {
   list.forEach((n, i) => (n === bubble && morph ? morphIn(n, from0) : enter(n, m.who === "me", i)));
   if (!stick && m.who !== "me") bump(1);
   if (m.who === "agent" && S.status.state === "idle") flash("speaking", 1300);
+}
+
+function editMsg(m) {
+  if (!S.byId.has(m.id)) return;
+  S.byId.set(m.id, m);
+  const old = thread.querySelector(`.kx[data-id="${m.id}"]`), fresh = old && connectorCard(m, cards);
+  if (fresh) { fresh.dataset.id = m.id; old.replaceWith(fresh); }
 }
 
 function emptyThread() {
@@ -503,10 +513,11 @@ function relDay(d) {
 
 function schedRow(r) {
   const d = new Date(r.due);
+  const fromCal = String(r.builtin || "").startsWith("cal:");
   const row = el("div", `row sched${r.builtin ? " tap" : ""}`);
   row.dataset.sched = r.id;
   if (r.builtin) { row.dataset.openSettings = ""; row.setAttribute("role", "button"); }
-  row.innerHTML = `<span class="when"><b>${clock.format(d)}</b><small>${esc(relDay(d))}</small></span><span class="meta"><strong></strong><span class="sub">${REPEAT[r.repeat] || "jednorazowo"}</span></span>`;
+  row.innerHTML = `<span class="when"><b>${clock.format(d)}</b><small>${esc(relDay(d))}</small></span><span class="meta"><strong></strong><span class="sub">${fromCal ? "przypomnienie z kalendarza" : REPEAT[r.repeat] || "jednorazowo"}</span></span>`;
   row.querySelector("strong").textContent = r.text;
   if (r.builtin) row.insertAdjacentHTML("beforeend", ICON.chev);
   else {
@@ -687,6 +698,7 @@ async function sync() {
   S.sched = d.sched;
   S.facts = d.facts;
   S.spend = d.spend;
+  S.calendar = d.calendar || { on: false, calendars: [], today: [] };
   const prevTasks = S.tasks;
   S.tasks = new Map(d.tasks.map((t) => [t.id, t]));
   S.status = d.status;
@@ -720,6 +732,7 @@ async function connect() {
       if (e.data === "pong") return;
       const ev = JSON.parse(e.data);
       if (ev.t === "msg") addMsg(ev.m);
+      else if (ev.t === "edit") editMsg(ev.m);
       else if (ev.t === "status") setStatus(ev);
       else if (ev.t === "task") updateTask(ev.task);
       else if (ev.t === "files") { S.files = ev.files; renderMake(); }
@@ -1093,6 +1106,13 @@ function settingsPage() {
       <label class="row tap select-row"><span class="meta"><strong>Godzina</strong></span><span class="val" id="b-hour-val">${s.briefs.hour}:00</span>${ICON.updown}<select id="b-hour" aria-label="Godzina briefu">${[5, 6, 7, 8, 9, 10].map((h) => `<option value="${h}"${s.briefs.hour === h ? " selected" : ""}>${h}:00</option>`).join("")}</select></label>
     </div>
     <p class="foot">Brief przychodzi do wątku o tej godzinie.</p>
+    <div class="sec">Kalendarz</div>
+    <div class="group">
+      <div class="row"><span class="meta"><strong>iCloud</strong></span><span class="val">${S.calendar?.on ? `Połączony, kalendarze: ${S.calendar.calendars.length}` : "Niepołączony"}</span></div>
+      ${S.calendar?.on ? `<label class="row tap select-row"><span class="meta"><strong>Przypomnienie</strong><span class="sub">Przed wydarzeniem</span></span><span class="val" id="c-nudge-val">${nudgeName(s.calendar?.nudge ?? 30)}</span>${ICON.updown}<select id="c-nudge" aria-label="Przypomnienie przed wydarzeniem">${NUDGES.map(([v, n]) => `<option value="${v}"${(s.calendar?.nudge ?? 30) === v ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="row tap select-row"><span class="meta"><strong>Nowe wydarzenia</strong></span><span class="val" id="c-home-val">${esc(s.calendar?.home || S.calendar.calendars.find((c) => c.write)?.name || "")}</span>${ICON.updown}<select id="c-home" aria-label="Kalendarz dla nowych wydarzeń">${S.calendar.calendars.filter((c) => c.write).map((c) => `<option value="${esc(c.name)}"${s.calendar?.home === c.name ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select></label>` : ""}
+    </div>
+    <p class="foot">${S.calendar?.on ? "Valet czyta kalendarz z iCloud, dodaje i przenosi wydarzenia, a o usunięcie zawsze pyta." : "Żeby Valet widział kalendarz, na serwerze musi być hasło aplikacji iCloud."}</p>
     <div class="sec">Wydatki</div>
     <div class="group" id="spend">
       <div class="row col meter-row"><div class="row-top"><strong>Dziś</strong><span class="val" id="spend-today"></span></div><div class="meter"><i id="meter"></i></div></div>
@@ -1439,6 +1459,11 @@ sheetEl.addEventListener("input", (e) => {
 sheetEl.addEventListener("change", (e) => {
   const t = e.target;
   if (t.id === "b-hour") { $("b-hour-val").textContent = `${t.value}:00`; saveBriefs(); }
+  if (t.id === "c-nudge" || t.id === "c-home") {
+    $("c-nudge-val").textContent = nudgeName(+$("c-nudge").value);
+    $("c-home-val").textContent = $("c-home").value;
+    api("/api/settings", { calendar: { nudge: +$("c-nudge").value, home: $("c-home").value } }).then((d) => { S.settings = d.settings; toast("Zapisane"); }).catch(() => toast("Nie udało się zapisać"));
+  }
 });
 sheetEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.id === "e-name") e.target.blur(); });
 sheetEl.addEventListener("pointerdown", (e) => { if (e.target.closest("#pix")) { painting = true; paint(e.target); e.preventDefault(); } });

@@ -8,9 +8,18 @@ const score = new Intl.NumberFormat("pl-PL", { minimumFractionDigits: 1, maximum
 const TMDB = "https://image.tmdb.org/t/p/";
 const PLAY = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5.5" width="19" height="13" rx="4.2" fill="currentColor"/><path d="M10.2 9.3v5.4l4.7-2.7z" fill="var(--card, #fff)"/></svg>';
 const FILM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M8 4.5v15M16 4.5v15M3.5 9.5H8M3.5 14.5H8M16 9.5h4.5M16 14.5h4.5"/></svg>';
+const CAL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
+const WARSAW = "Europe/Warsaw";
+const dayKey = new Intl.DateTimeFormat("sv-SE", { timeZone: WARSAW });
+const hm = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, hour: "numeric", minute: "2-digit" });
+const hourParts = new Intl.DateTimeFormat("en-GB", { timeZone: WARSAW, hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
+const longDay = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, weekday: "long", day: "numeric", month: "long" });
+const shortDate = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, day: "numeric", month: "short" });
+const weekdayShort = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, weekday: "short" });
+const dayNumber = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, day: "numeric" });
 const links = new Map();
 
-export const CARD_KINDS = ["videos", "title", "titles", "image"];
+export const CARD_KINDS = ["videos", "title", "titles", "image", "agenda", "event"];
 
 const plural = (n, one, few, many) => (n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? few : many);
 
@@ -174,8 +183,104 @@ function picture(m, ctx) {
   return box;
 }
 
+const noon = (key) => Date.parse(`${key}T12:00:00Z`);
+const lastMoment = (e) => (e.end > e.start ? e.end - 1 : e.start);
+const hourOf = (ts) => { const [h, m] = hourParts.format(ts).split(":"); return +h + +m / 60; };
+const tint = (c) => (/^#[0-9a-f]{6}$/i.test(c || "") ? c : "var(--accent)");
+
+function dayTitle(key) {
+  const today = dayKey.format(Date.now()), tomorrow = dayKey.format(Date.now() + 86400000);
+  const name = longDay.format(noon(key));
+  return key === today ? ["Dziś", name] : key === tomorrow ? ["Jutro", name] : [name.charAt(0).toUpperCase() + name.slice(1), ""];
+}
+
+export function agendaNode(agenda, { ribbon = true, empty = true, heads = (agenda.days || 1) > 1 } = {}) {
+  const box = el("div", "kx-agenda"), now = Date.now(), today = dayKey.format(now);
+  const days = Math.max(1, agenda.days || 1), FROM = 6, HOURS = 17;
+  for (let i = 0; i < days; i++) {
+    const key = new Date(noon(agenda.from) + i * 86400000).toISOString().slice(0, 10);
+    const list = agenda.events.filter((e) => dayKey.format(e.start) <= key && dayKey.format(lastMoment(e)) >= key);
+    if (!list.length && (!empty || days > 7)) continue;
+    const day = el("div", "kx-day"), [lead, rest] = dayTitle(key);
+    if (heads) day.append(el("div", "kx-dayhead", `<strong>${esc(lead)}</strong>${rest ? `<span>${esc(rest)}</span>` : ""}`));
+    const whole = list.filter((e) => e.allDay), timed = list.filter((e) => !e.allDay);
+    if (ribbon && days <= 3 && timed.length) {
+      const band = el("div", "kx-ribbon");
+      for (const e of timed) {
+        const a = dayKey.format(e.start) < key ? 0 : hourOf(e.start), b = dayKey.format(lastMoment(e)) > key ? 24 : hourOf(e.end);
+        const left = Math.max(0, Math.min(100, ((a - FROM) / HOURS) * 100)), right = Math.max(0, Math.min(100, ((b - FROM) / HOURS) * 100));
+        band.insertAdjacentHTML("beforeend", `<i style="left:${left.toFixed(1)}%;width:${Math.max(1.6, right - left).toFixed(1)}%;--c:${tint(e.color)}"></i>`);
+      }
+      const h = hourOf(now);
+      if (key === today && h >= FROM && h <= FROM + HOURS) band.insertAdjacentHTML("beforeend", `<b style="left:${(((h - FROM) / HOURS) * 100).toFixed(1)}%"></b>`);
+      day.append(band, el("div", "kx-ticks", [6, 9, 12, 15, 18, 21].map((t) => `<span style="left:${(((t - FROM) / HOURS) * 100).toFixed(1)}%">${t}</span>`).join("")));
+    }
+    if (whole.length) day.append(el("div", "kx-whole", whole.map((e) => `<span style="--c:${tint(e.color)}">${esc(e.title)}</span>`).join("")));
+    for (const e of timed) {
+      const starts = dayKey.format(e.start) === key, ends = dayKey.format(lastMoment(e)) === key;
+      const state = e.end <= now ? " kx-past" : e.start <= now ? " kx-live" : "";
+      const sub = [e.location, e.cal].filter(Boolean).map(esc).join(" · ");
+      day.append(el("div", `kx-ev${state}`, `<span class="kx-when"><b>${starts ? hm.format(e.start) : "trwa"}</b><i>${ends ? hm.format(e.end) : ""}</i></span><i class="kx-bar" style="--c:${tint(e.color)}"></i><span class="kx-what"><strong>${esc(e.title)}</strong>${sub ? `<span class="sub">${sub}</span>` : ""}</span>${state === " kx-live" ? '<em class="kx-nowtag">teraz</em>' : ""}`));
+    }
+    if (!list.length) day.append(el("div", "kx-free", "Nic w kalendarzu"));
+    box.append(day);
+  }
+  if (!box.children.length) box.append(el("div", "kx-free", "Nic w kalendarzu"));
+  return box;
+}
+
+function agenda(m) {
+  const a = m.data.agenda, card = el("div", "card kx kx-cal");
+  const last = new Date(noon(a.from) + (a.days - 1) * 86400000).toISOString().slice(0, 10);
+  const label = a.days === 1 ? dayTitle(a.from)[0].toLowerCase() : `${shortDate.format(noon(a.from))} do ${shortDate.format(noon(last))}`;
+  card.append(el("div", "kx-head", `${CAL}<span>Kalendarz</span><em>${esc(label)}</em>`));
+  card.append(agendaNode(a, { empty: a.days <= 7 }));
+  return card;
+}
+
+function eventSpan(e) {
+  const first = dayKey.format(e.start), last = dayKey.format(lastMoment(e));
+  const name = (ts) => longDay.format(ts);
+  if (e.allDay) return first === last ? `${name(e.start)} · cały dzień` : `${shortDate.format(e.start)} do ${shortDate.format(lastMoment(e))} · całe dni`;
+  return first === last ? `${name(e.start)} · ${hm.format(e.start)}–${hm.format(e.end)}` : `${shortDate.format(e.start)} ${hm.format(e.start)} do ${shortDate.format(e.end)} ${hm.format(e.end)}`;
+}
+
+function eventCard(m, ctx) {
+  const e = m.data.event, card = el("div", "card kx kx-event");
+  const gone = e.done === "undone" || e.done === "deleted";
+  if (gone) card.classList.add("kx-gone");
+  const sub = [e.location, e.cal].filter(Boolean).map(esc).join(" · ");
+  card.innerHTML = `<div class="kx-evrow"><span class="kx-date" style="--c:${tint(e.color)}"><i>${esc(weekdayShort.format(e.start).replace(".", ""))}</i><b>${dayNumber.format(e.start)}</b></span><span class="kx-what"><strong>${esc(e.title)}</strong><span class="sub">${esc(eventSpan(e))}</span>${sub ? `<span class="sub">${sub}</span>` : ""}</span></div>`;
+  const state = { undone: "Cofnięte, wydarzenia nie ma w kalendarzu", deleted: "Usunięte z kalendarza", kept: "Zostaje w kalendarzu" }[e.done] || { added: "Dodane do kalendarza", changed: "Zmienione w kalendarzu", ask_delete: "Usunąć z kalendarza?" }[e.op] || "";
+  const foot = el("div", "kx-evfoot", `<span class="kx-state">${state}</span>`);
+  const button = (label, act, ghost) => {
+    const b = el("button", `btn${ghost ? " ghost" : ""}`, label);
+    b.type = "button";
+    b.addEventListener("click", async () => {
+      if (card.classList.contains("kx-busy")) return;
+      card.classList.add("kx-busy");
+      try {
+        const d = await ctx.post("/api/calendar/act", { msg: m.id, act });
+        const fresh = eventCard({ ...m, data: { ...m.data, event: d.event || e } }, ctx);
+        if (card.dataset.id) fresh.dataset.id = card.dataset.id;
+        card.replaceWith(fresh);
+      } catch (err) {
+        card.classList.remove("kx-busy");
+        foot.querySelector(".kx-state").textContent = "Nie udało się, spróbuj jeszcze raz";
+      }
+    });
+    foot.append(b);
+  };
+  if (!e.done && e.op === "added") button("Cofnij", "undo", true);
+  if (!e.done && e.op === "ask_delete") { button("Zostaw", "keep", true); button("Usuń", "delete", false); }
+  card.append(foot);
+  return card;
+}
+
 export function card(m, ctx) {
   try {
+    if (m.kind === "agenda" && m.data?.agenda) return agenda(m);
+    if (m.kind === "event" && m.data?.event) return eventCard(m, ctx);
     if (m.kind === "videos" && m.data?.videos?.length) return videos(m);
     if (m.kind === "title" && m.data?.title) return film(m);
     if (m.kind === "titles" && m.data?.titles?.length) return shelf(m, ctx);

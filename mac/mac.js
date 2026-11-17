@@ -1,6 +1,6 @@
 /* Concierge Valet for Mac: desktop client for the same thread, with a sidebar, an inspector, keyboard shortcuts and a native shell bridge. */
 import { TYPES, SWATCHES, defaults, mount, watch, look, poke, setState } from "../avatar.js";
-import { CARD_KINDS, card as connectorCard, openImage, thumb } from "../cards.js";
+import { CARD_KINDS, agendaNode, card as connectorCard, openImage, thumb } from "../cards.js";
 
 const V = window.VALET || {};
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname) && !V.api;
@@ -25,7 +25,7 @@ const STATES = [["idle", "Spokój"], ["listening", "Słucha"], ["thinking", "My�
 const TITLES = { chat: "Rozmowa", tasks: "Zadania", files: "Pliki", memory: "Pamięć" };
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-const S = { token: V.token || store.get("valet-token") || "", settings: null, byId: new Map(), tasks: new Map(), files: [], sched: [], facts: [], spend: { today: 0, month: 0, limit: 6 }, status: { state: "idle", text: "" }, view: "chat", agentKey: null, ws: null, lastDay: "", pending: [], retry: 1000, unread: 0, missed: 0 };
+const S = { token: V.token || store.get("valet-token") || "", settings: null, byId: new Map(), tasks: new Map(), files: [], sched: [], facts: [], spend: { today: 0, month: 0, limit: 6 }, status: { state: "idle", text: "" }, calendar: { on: false, calendars: [], today: [] }, view: "chat", agentKey: null, ws: null, lastDay: "", pending: [], retry: 1000, unread: 0, missed: 0 };
 const puck = $("puck"), thread = $("thread"), scroller = $("chat-scroll"), input = $("input");
 let typingNode = null, statusTimer = 0, listenTimer = 0, flashTimer = 0, local = "", E = null, brush = "1", painting = false, motion = null;
 
@@ -72,6 +72,7 @@ const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1).replace(".", ","
 const money = (n) => n.toFixed(2).replace(".", ",");
 const agentOf = (key) => S.settings.agents[key] || S.settings.agents.valet;
 const isImage = (f) => String(f?.mime || "").startsWith("image/");
+const NUDGES = [[0, "Wyłączone"], [10, "10 min"], [15, "15 min"], [30, "30 min"], [60, "1 godz."]];
 const cards = {
   link: (id) => api("/api/file/link", { id, hold: true }).then((d) => d.url),
   post: (path, body) => api(path, body),
@@ -161,10 +162,11 @@ function nodes(m) {
   }
   if (CARD_KINDS.includes(m.kind)) {
     const card = connectorCard(m, cards);
-    if (card) { out.push(card); return out; }
+    if (card) { card.dataset.id = m.id; out.push(card); return out; }
   }
   if (m.kind === "brief") {
     const card = el("div", "card brief", `<h3>${esc(m.data?.title || "Brief")}</h3><div class="text">${md(m.text)}</div>`);
+    if (m.data?.agenda) { const box = el("div", "sky-box"); box.append(agendaNode(m.data.agenda, { empty: false })); card.append(box); }
     if (m.data?.sky) { const box = el("div", "sky-box"); box.append(skyNode(m.data.sky)); card.append(box); }
     if (m.data?.week) card.append(el("div", "week", m.data.week.map((d) => `<div><span>${new Intl.DateTimeFormat("pl-PL", { weekday: "short" }).format(new Date(`${d.day}T12:00`))}</span><b>${d.max}°</b><span>${d.min}°</span><i style="--o:${(d.rain / 100).toFixed(2)}"></i></div>`).join("")));
     out.push(card);
@@ -256,6 +258,13 @@ function addMsg(m, live = true) {
   }
 }
 
+function editMsg(m) {
+  if (!S.byId.has(m.id)) return;
+  S.byId.set(m.id, m);
+  const old = thread.querySelector(`.kx[data-id="${m.id}"]`), fresh = old && connectorCard(m, cards);
+  if (fresh) { fresh.dataset.id = m.id; old.replaceWith(fresh); }
+}
+
 function renderThread(msgs) {
   thread.textContent = "";
   typingNode = null;
@@ -345,7 +354,7 @@ function renderTasks(animate = true) {
   box.append(el("h3", "", "Zaplanowane"));
   if (!S.sched.length) box.append(el("div", "empty", "Brak przypomnień i briefów."));
   for (const r of S.sched) {
-    const repeat = { daily: "codziennie", weekdays: "w dni robocze", weekly: "co tydzień" }[r.repeat] || "jednorazowo";
+    const repeat = String(r.builtin || "").startsWith("cal:") ? "przypomnienie z kalendarza" : { daily: "codziennie", weekdays: "w dni robocze", weekly: "co tydzień" }[r.repeat] || "jednorazowo";
     const row = el("div", "card row", `<div class="grid-meta"><strong>${esc(r.text)}</strong><span class="sub">${esc(when.format(new Date(r.due)))} · ${repeat}</span></div>`);
     if (!r.builtin) { const x = el("button", "x", "×"); x.dataset.unsched = r.id; x.title = "Usuń"; row.append(x); }
     box.append(row);
@@ -449,6 +458,13 @@ function renderInspector() {
     card.append(skyNode(sky.data.sky));
     box.append(card);
   }
+  if (S.calendar.on) {
+    const key = new Date().toLocaleDateString("sv-SE");
+    box.append(el("h4", "", "Kalendarz"));
+    const card = el("div", "card kx");
+    card.append(agendaNode({ from: key, days: 1, events: S.calendar.today }, { empty: true }));
+    box.append(card);
+  }
   if (S.sched.length) {
     box.append(el("h4", "", "Najbliższe"));
     S.sched.slice(0, 4).forEach((r) => box.append(el("div", "mini", `<strong>${esc(r.text)}</strong><span class="sub">${esc(when.format(new Date(r.due)))}</span>`)));
@@ -524,6 +540,7 @@ async function sync() {
   S.sched = d.sched;
   S.facts = d.facts;
   S.spend = d.spend;
+  S.calendar = d.calendar || S.calendar;
   S.tasks = new Map(d.tasks.map((t) => [t.id, t]));
   S.status = d.status;
   applySettings(d.settings);
@@ -545,6 +562,8 @@ async function connect() {
       if (e.data === "pong") return;
       const ev = JSON.parse(e.data);
       if (ev.t === "msg") addMsg(ev.m);
+      else if (ev.t === "edit") editMsg(ev.m);
+      else if (ev.t === "calendar") { S.calendar.today = ev.today; renderInspector(); }
       else if (ev.t === "status") setStatus(ev);
       else if (ev.t === "task") updateTask(ev.task);
       else if (ev.t === "files") { S.files = ev.files; if (S.view === "files") renderFiles(); renderInspector(); }
@@ -661,6 +680,10 @@ function openSettings() {
     <label class="switch">Poranny brief<input type="checkbox" id="b-daily"${s.briefs.daily ? " checked" : ""}></label>
     <label class="switch">Weekly Briefing w poniedziałek<input type="checkbox" id="b-weekly"${s.briefs.weekly ? " checked" : ""}></label>
     <div class="f"><span>Godzina</span><select id="b-hour">${[5, 6, 7, 8, 9, 10].map((h) => `<option value="${h}"${s.briefs.hour === h ? " selected" : ""}>${h}:00</option>`).join("")}</select></div>
+    <h3>Kalendarz</h3>
+    <div class="note">${S.calendar.on ? `Połączony z iCloud, kalendarze: ${S.calendar.calendars.length}. Valet czyta kalendarz, dodaje i przenosi wydarzenia, a o usunięcie zawsze pyta.` : "Niepołączony. Żeby Valet widział kalendarz, na serwerze musi być hasło aplikacji iCloud."}</div>
+    ${S.calendar.on ? `<div class="f"><span>Przypomnienie</span><select id="c-nudge">${NUDGES.map(([v, n]) => `<option value="${v}"${(s.calendar?.nudge ?? 30) === v ? " selected" : ""}>${n}</option>`).join("")}</select></div>
+    <div class="f"><span>Nowe wydarzenia</span><select id="c-home">${S.calendar.calendars.filter((c) => c.write).map((c) => `<option value="${esc(c.name)}"${s.calendar?.home === c.name ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>` : ""}
     <h3>Wydatki</h3>
     <div class="note">Dziś ${money(S.spend.today)} USD, w tym miesiącu ${money(S.spend.month)} USD. Po przekroczeniu dziennego limitu rozmowa schodzi na mały model, a nowe zadania w tle czekają do jutra.</div>
     <div class="f"><span>Limit dzienny (USD)</span><input type="number" id="limit" min="0.5" max="50" step="0.5" value="${s.dailyUsd}"></div>
@@ -733,6 +756,7 @@ document.addEventListener("change", async (e) => {
   const t = e.target;
   if (t.dataset.model) { const d = await api("/api/settings", { models: { [t.dataset.model]: t.value } }); S.settings = d.settings; renderAgents(); }
   if (["b-daily", "b-weekly", "b-hour"].includes(t.id)) { const d = await api("/api/settings", { briefs: { daily: $("b-daily").checked, weekly: $("b-weekly").checked, hour: +$("b-hour").value } }); S.settings = d.settings; }
+  if (t.id === "c-nudge" || t.id === "c-home") { const d = await api("/api/settings", { calendar: { nudge: +$("c-nudge").value, home: $("c-home").value } }); S.settings = d.settings; }
   if (t.id === "limit") { const d = await api("/api/settings", { dailyUsd: +t.value }); S.settings = d.settings; S.spend.limit = d.settings.dailyUsd; paintSpend(); }
 });
 document.addEventListener("pointerdown", (e) => { if (e.target.closest("#pix")) { painting = true; paint(e.target); e.preventDefault(); } });

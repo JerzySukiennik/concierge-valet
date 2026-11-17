@@ -4,15 +4,29 @@ import { ask, explain, extract, label } from "./agent.mjs";
 import { SYSTEM, BRIEF_SYSTEM } from "./prompt.mjs";
 import { chatTools } from "./tools.mjs";
 import { clockOf, findTitles, image, title, titleList, youtube } from "./connectors.mjs";
+import { calendarOn, changeEvent, createEvent, discover, listEvents, parts, removeEvent } from "./calendar.mjs";
 import { sendPush } from "./push.mjs";
-import { cost, dayKey, hm, human, isoLocal, json, local, nextAt, nextRepeat, parseLocal, sign } from "./util.mjs";
+import { cost, dayKey, fromLocal, hm, human, isoLocal, json, local, nextAt, nextRepeat, parseLocal, sign } from "./util.mjs";
 
 const PIXELS = ["..1111..", ".114411.", "11111111", ".22..22.", ".22..22.", "........", ".3....3.", "..3333.."];
 const MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"];
 const AVATARS = ["orbita", "buzka", "piksel"];
 const CHUNK = 1000000;
-const CARDS = { task: " (rozpoczęte zadanie w tle)", sky: " (karta pogody)", brief: " (brief)", remind: " (przypomnienie)", videos: " (karta z filmami z YouTube)", title: " (karta filmu lub serialu)", titles: " (karta z plakatami tytułów)", image: " (wygenerowany obrazek)" };
+const CARDS = { task: " (rozpoczęte zadanie w tle)", sky: " (karta pogody)", brief: " (brief)", remind: " (przypomnienie)", agenda: " (karta kalendarza)", event: " (karta wydarzenia w kalendarzu)", videos: " (karta z filmami z YouTube)", title: " (karta filmu lub serialu)", titles: " (karta z plakatami tytułów)", image: " (wygenerowany obrazek)" };
 const names = (list) => list.map((p) => p.name).join(", ");
+const SYNC = 30 * 60000;
+const dayLabel = new Intl.DateTimeFormat("pl-PL", { timeZone: "Europe/Warsaw", weekday: "short", day: "numeric", month: "short" });
+const rangeDay = new Intl.DateTimeFormat("pl-PL", { timeZone: "Europe/Warsaw", weekday: "long", day: "numeric", month: "long" });
+const shiftDay = (p, n) => { const t = new Date(Date.UTC(p.y, p.mo - 1, p.d + n)); return { y: t.getUTCFullYear(), mo: t.getUTCMonth() + 1, d: t.getUTCDate(), h: p.h || 0, mi: p.mi || 0 }; };
+const ms = (p) => fromLocal(p.y, p.mo, p.d, p.h || 0, p.mi || 0);
+const span = (e) => (e.allDay ? (e.end - e.start > 86400000 ? `${dayLabel.format(e.start)} do ${dayLabel.format(e.end - 3600000)}, cały dzień` : `${dayLabel.format(e.start)}, cały dzień`) : `${dayLabel.format(e.start)} ${hm(e.start)}-${hm(e.end)}`);
+const eventLine = (e) => `[${e.id}] ${span(e)}: ${e.title}${e.location ? ` @ ${e.location}` : ""} (${e.cal}${e.recurring ? ", repeats" : ""})`;
+const publicEvent = (e) => ({ id: e.id, title: e.title, start: e.start, end: e.end, allDay: e.allDay, cal: e.cal, color: e.color, location: e.location, recurring: !!e.recurring });
+function shortId(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(36);
+}
 
 function defaults(env) {
   return {
@@ -21,6 +35,7 @@ function defaults(env) {
     dailyUsd: +(env.DAILY_USD || 6),
     city: { name: "Warszawa", lat: 52.23, lon: 21.01 },
     briefs: { daily: true, weekly: true, hour: 7, minute: 0 },
+    calendar: { nudge: 30, home: "", hidden: [] },
     agents: {
       valet: { name: "Valet", role: "Rozmawia z Tobą i rozdziela pracę", avatar: { type: "orbita", cfg: { pk: "#ffffff", ink: "#1d1c19", acc: "#1f5a46", sats: 1, tilt: -24 } } },
       atelier: { name: "Atelier", role: "Dokumenty i rzeczy wizualne", avatar: { type: "buzka", cfg: { pk: "#1f5a46", ink: "#f8f6f1", acc: "#f8f6f1", eye: "pill", gap: 13, mouth: "none" } } },
@@ -68,7 +83,7 @@ export class Valet extends DurableObject {
     const d = defaults(this.env), s = this.get("settings", {});
     const agents = {};
     for (const k of Object.keys(d.agents)) agents[k] = { ...d.agents[k], ...(s.agents?.[k] || {}) };
-    return { ...d, ...s, models: { ...d.models, ...s.models }, city: { ...d.city, ...s.city }, briefs: { ...d.briefs, ...s.briefs }, agents };
+    return { ...d, ...s, models: { ...d.models, ...s.models }, city: { ...d.city, ...s.city }, briefs: { ...d.briefs, ...s.briefs }, calendar: { ...d.calendar, ...s.calendar }, agents };
   }
 
   seed() {
@@ -124,7 +139,9 @@ export class Valet extends DurableObject {
   }
 
   boot() {
+    const cal = this.get("cal", null);
     return {
+      calendar: { on: calendarOn(this.env), calendars: (cal?.list || []).map((c) => ({ name: c.name, color: c.color, write: c.write })), today: this.get("calToday", { events: [] }).events },
       settings: this.settings(),
       msgs: this.msgs(),
       tasks: this.rows("SELECT id, ts, updated, title, kind, format, agent, status, step, usd FROM tasks ORDER BY id DESC LIMIT 40"),
@@ -175,13 +192,18 @@ export class Valet extends DurableObject {
         if (body.models) next.models = { ...cur.models, ...Object.fromEntries(Object.entries(body.models).filter(([k, v]) => ["chat", "text", "docs"].includes(k) && MODELS.includes(v))) };
         if (body.dailyUsd !== undefined) next.dailyUsd = Math.max(0.5, Math.min(50, +body.dailyUsd || 6));
         if (body.briefs) next.briefs = { ...cur.briefs, daily: !!body.briefs.daily, weekly: !!body.briefs.weekly, hour: Math.max(0, Math.min(23, +body.briefs.hour || 7)), minute: 0 };
+        if (body.calendar) {
+          const c = body.calendar, prev = this.settings().calendar;
+          next.calendar = { nudge: [0, 10, 15, 30, 60].includes(+c.nudge) ? +c.nudge : prev.nudge, home: c.home === undefined ? prev.home : String(c.home).slice(0, 80), hidden: Array.isArray(c.hidden) ? c.hidden.map((x) => String(x).slice(0, 80)).slice(0, 40) : prev.hidden };
+        }
         if (body.agent && defaults(this.env).agents[body.agent.key]) {
           const a = body.agent, prev = this.settings().agents[a.key];
           const avatar = a.avatar && AVATARS.includes(a.avatar.type) ? { type: a.avatar.type, cfg: a.avatar.cfg || {} } : prev.avatar;
           next.agents = { ...cur.agents, [a.key]: { name: String(a.name || prev.name).slice(0, 24), avatar } };
         }
         this.put("settings", next);
-        if (body.briefs) { this.sql.exec("DELETE FROM sched WHERE builtin IS NOT NULL"); this.seed(); await this.rearm(); }
+        if (body.briefs) { this.sql.exec("DELETE FROM sched WHERE builtin IN ('daily', 'weekly')"); this.seed(); await this.rearm(); }
+        if (body.calendar) { await this.syncCalendar().catch((err) => console.error("calendar", String(err?.message || err))); await this.rearm(); }
         this.broadcast({ t: "settings", settings: this.settings(), sched: this.rows("SELECT * FROM sched ORDER BY due") });
         return json({ settings: this.settings() });
       }
@@ -219,6 +241,30 @@ export class Valet extends DurableObject {
         } catch (err) {
           return json({ ok: false, error: explain(err) });
         }
+      }
+      case "POST /api/brief/now":
+        await this.brief(body.kind === "weekly" ? "weekly" : "daily");
+        return json({ ok: true });
+      case "POST /api/calendar/act": {
+        const row = this.rows("SELECT * FROM msgs WHERE id = ? AND kind = 'event'", +body.msg)[0];
+        if (!row) return json({ error: "not found" }, 404);
+        const data = JSON.parse(row.data || "{}"), ev = data.event;
+        if (!ev || ev.done) return json({ ok: true, event: ev || null });
+        try {
+          if (body.act === "keep" && ev.op === "ask_delete") ev.done = "kept";
+          else if ((body.act === "undo" && ev.op === "added") || (body.act === "delete" && ev.op === "ask_delete")) {
+            await removeEvent(this.env, { href: ev.href });
+            ev.done = body.act === "undo" ? "undone" : "deleted";
+            await this.syncCalendar().catch(() => {});
+            await this.rearm();
+          } else return json({ error: "bad action" }, 400);
+        } catch (err) {
+          return json({ error: String(err?.message || err).slice(0, 200) }, 502);
+        }
+        data.note = `${data.note || ""} State: ${ev.done}.`.trim();
+        this.sql.exec("UPDATE msgs SET data = ? WHERE id = ?", JSON.stringify(data), row.id);
+        this.broadcast({ t: "edit", m: { ...row, data } });
+        return json({ ok: true, event: ev });
       }
       case "POST /api/title": {
         if (!+body.id) return json({ error: "bad id" }, 400);
@@ -268,8 +314,10 @@ export class Valet extends DurableObject {
   async rearm() {
     const cursor = this.get("cursor", 0);
     if (this.rows("SELECT id FROM msgs WHERE id > ? AND who = 'me' LIMIT 1", cursor).length) return this.ctx.storage.setAlarm(Date.now() + 50);
-    const next = this.rows("SELECT min(due) AS due FROM sched")[0].due;
-    if (next) return this.ctx.storage.setAlarm(Math.max(next, Date.now() + 500));
+    const due = this.rows("SELECT min(due) AS due FROM sched")[0].due;
+    const sync = calendarOn(this.env) ? this.get("calNext", 0) || Date.now() + 1000 : null;
+    const next = Math.min(due || Infinity, sync || Infinity);
+    if (Number.isFinite(next)) return this.ctx.storage.setAlarm(Math.max(next, Date.now() + 500));
     return this.ctx.storage.deleteAlarm();
   }
 
@@ -288,6 +336,14 @@ export class Valet extends DurableObject {
       await this.runDue();
     } catch (err) {
       console.error("due", String(err?.stack || err));
+    }
+    if (calendarOn(this.env) && Date.now() >= this.get("calNext", 0)) {
+      try {
+        await this.syncCalendar();
+      } catch (err) {
+        console.error("calendar", String(err?.message || err));
+        this.put("calNext", Date.now() + SYNC);
+      }
     }
     await this.rearm();
   }
@@ -308,11 +364,79 @@ export class Valet extends DurableObject {
       `<now>${human()} (Europe/Warsaw), ${isoLocal(Date.now())}</now>`,
       `<owner>${owner}</owner>`,
       `<memory>\n${facts.length ? facts.map((f) => `#${f.id} ${f.text}`).join("\n") : "(nothing yet)"}\n</memory>`,
+      this.calendarLine(),
       `<background_tasks>\n${tasks.length ? tasks.map((t) => `#${t.id} "${t.title}": ${t.status}${t.step ? `, ${t.step}` : ""}`).join("\n") : "(none)"}\n</background_tasks>`,
       spend.today >= spend.limit ? "<budget>The daily API budget is used up. You are running on the small model, and new background tasks are refused until tomorrow. Tell him if he asks for one.</budget>" : "",
       `<thread>\n${prior.length ? prior.map(line).join("\n") : "(this is the start of the thread)"}\n</thread>`,
       `<new_messages>\n${fresh.map((m) => `[${hm(m.ts)}] ${owner}: ${m.text}`).join("\n")}\n</new_messages>`,
     ].filter(Boolean).join("\n\n");
+  }
+
+  calendarLine() {
+    if (!calendarOn(this.env)) return "<calendar>Not connected.</calendar>";
+    const list = this.get("cal", null)?.list || [], s = this.settings().calendar;
+    const open = list.filter((c) => !s.hidden.includes(c.name));
+    if (!open.length) return "<calendar>Connected.</calendar>";
+    const home = this.homeCalendar(list);
+    return `<calendar>Connected. Calendars: ${open.map((c) => `${c.name}${c.write ? "" : " (read only)"}`).join(", ")}. New events go to "${home?.name || open[0].name}" unless another calendar clearly fits.</calendar>`;
+  }
+
+  homeCalendar(list) {
+    const s = this.settings().calendar, can = list.filter((c) => c.write && !s.hidden.includes(c.name));
+    return can.find((c) => c.name === s.home) || can[0] || null;
+  }
+
+  async calendars(force = false) {
+    const cached = this.get("cal", null);
+    if (!force && cached && Date.now() - cached.ts < 12 * 3600000) return cached.list;
+    const list = await discover(this.env);
+    this.put("cal", { ts: Date.now(), list });
+    return list;
+  }
+
+  remember(list) {
+    const map = this.get("calEv", {});
+    for (const e of list) { delete map[e.id]; map[e.id] = { href: e.href, etag: e.etag, title: e.title, start: e.start, end: e.end, allDay: e.allDay, cal: e.cal, color: e.color, location: e.location, recurring: !!e.recurring }; }
+    const keys = Object.keys(map);
+    for (const k of keys.slice(0, Math.max(0, keys.length - 400))) delete map[k];
+    this.put("calEv", map);
+  }
+
+  async calendarRange(from, to) {
+    const hidden = this.settings().calendar.hidden;
+    let cals = await this.calendars();
+    let list;
+    try {
+      list = await listEvents(this.env, cals.filter((c) => !hidden.includes(c.name)), from, to);
+    } catch (err) {
+      cals = await this.calendars(true);
+      list = await listEvents(this.env, cals.filter((c) => !hidden.includes(c.name)), from, to);
+    }
+    for (const e of list) e.id = shortId(`${e.href}|${e.recurring ? e.start : ""}`);
+    this.remember(list);
+    return list;
+  }
+
+  async syncCalendar() {
+    const now = Date.now(), s = this.settings().calendar;
+    this.put("calNext", now + SYNC);
+    if (!calendarOn(this.env)) return;
+    const l = local(now), dayStart = fromLocal(l.y, l.mo, l.d, 0, 0);
+    const list = await this.calendarRange(dayStart, dayStart + 2 * 86400000);
+    this.put("calToday", { ts: now, events: list.slice(0, 60).map(publicEvent) });
+    this.sql.exec("DELETE FROM sched WHERE builtin LIKE 'cal:%'");
+    const fired = this.get("calFired", []);
+    if (s.nudge > 0) {
+      for (const e of list) {
+        const key = `cal:${e.id}:${e.start}`;
+        const due = e.start - s.nudge * 60000;
+        if (e.allDay || e.start <= now + 120000 || fired.includes(key)) continue;
+        if (due < now && (now - (e.touched || 0) < 45 * 60000 || e.start - now < 5 * 60000)) continue;
+        this.sql.exec("INSERT INTO sched (due, repeat, text, builtin) VALUES (?, 'none', ?, ?)", Math.max(now + 1000, due), [e.title, hm(e.start), e.location].filter(Boolean).join(" · ").slice(0, 300), key);
+      }
+    }
+    this.broadcast({ t: "sched", sched: this.rows("SELECT * FROM sched ORDER BY due") });
+    this.broadcast({ t: "calendar", today: this.get("calToday", { events: [] }).events });
   }
 
   async chatTurn() {
@@ -422,6 +546,10 @@ export class Valet extends DurableObject {
       this.post({ who: "agent", agent: "valet", kind: "sky", text: wx.summary, data: { sky: wx.sky } });
       return `Card posted. ${wx.summary}`;
     }
+    if (name === "calendar" || name === "add_event" || name === "change_event" || name === "delete_event") {
+      if (!calendarOn(this.env)) return "The calendar is not connected: the iCloud app password has not been added to the server yet. Tell him that plainly.";
+      return this.calendarTool(name, input);
+    }
     if (name === "youtube_search") {
       const query = String(input.query).slice(0, 200);
       const list = await youtube(this.env, { query, order: input.order, count: 5 });
@@ -472,6 +600,65 @@ export class Valet extends DurableObject {
     return `Unknown tool ${name}.`;
   }
 
+  async calendarTool(name, input) {
+    if (name === "calendar") {
+      const p = parts(input.from);
+      if (!p) return "Refused: from must look like 2026-11-18.";
+      const days = Math.max(1, Math.min(31, +input.days || 1));
+      let list = await this.calendarRange(ms({ ...p, h: 0, mi: 0 }), ms(shiftDay({ ...p, h: 0, mi: 0 }, days)));
+      const q = String(input.query || "").trim().toLowerCase();
+      if (q) list = list.filter((e) => `${e.title} ${e.location}`.toLowerCase().includes(q));
+      const note = list.length ? list.slice(0, 70).map(eventLine).join("\n") : "No events.";
+      if (input.show) this.post({ who: "agent", agent: "valet", kind: "agenda", text: list.length ? `Wydarzenia: ${list.length}` : "Nic w kalendarzu", data: { agenda: { from: `${p.y}-${String(p.mo).padStart(2, "0")}-${String(p.d).padStart(2, "0")}`, days, events: list.slice(0, 80).map(publicEvent) }, note: note.slice(0, 700) } });
+      const first = ms({ ...p, h: 12, mi: 0 }), last = ms(shiftDay({ ...p, h: 12, mi: 0 }, days - 1));
+      return `${input.show ? "Agenda card posted. " : ""}Range read: ${rangeDay.format(first)}${days > 1 ? ` to ${rangeDay.format(last)}` : ""}. ${list.length} event(s):\n${note}`;
+    }
+    const map = this.get("calEv", {});
+    if (name === "add_event") {
+      const start = parts(input.start), allDay = !!input.all_day;
+      if (!start) return "Refused: start must look like 2026-11-18T15:00.";
+      let end = parts(input.end) || start;
+      if (allDay) { if (ms({ ...end, h: 0, mi: 0 }) < ms({ ...start, h: 0, mi: 0 })) end = start; }
+      else if (ms(end) <= ms(start)) { const l = local(ms(start) + 3600000); end = { y: l.y, mo: l.mo, d: l.d, h: l.h, mi: l.mi }; }
+      const cals = await this.calendars(), wanted = String(input.calendar || "").trim().toLowerCase();
+      const cal = wanted ? cals.find((c) => c.write && c.name.toLowerCase() === wanted) : this.homeCalendar(cals);
+      if (!cal) return `Refused: there is no writable calendar ${wanted ? `named "${input.calendar}"` : "to use"}. Writable calendars: ${names(cals.filter((c) => c.write)) || "none"}.`;
+      const title = String(input.title).trim().slice(0, 200), location = String(input.location || "").trim().slice(0, 200);
+      const made = await createEvent(this.env, cal, { title, start, end, allDay, location, notes: String(input.notes || "").slice(0, 2000), alert: Math.max(0, Math.min(10080, +input.alert_minutes || 0)) });
+      const ev = { id: shortId(`${made.href}|`), title, start: allDay ? ms({ ...start, h: 0, mi: 0 }) : ms(start), end: allDay ? ms(shiftDay({ ...end, h: 0, mi: 0 }, 1)) : ms(end), allDay, cal: cal.name, color: cal.color, location, recurring: false, href: made.href, etag: made.etag };
+      this.remember([ev]);
+      this.post({ who: "agent", agent: "valet", kind: "event", text: title, data: { event: { ...publicEvent(ev), href: ev.href, op: "added" }, note: `Added: ${eventLine(ev)}` } });
+      await this.syncCalendar().catch(() => {});
+      return `Added and a card with an undo button is in the thread: ${eventLine(ev)}`;
+    }
+    const ref = map[input.id];
+    if (!ref) return "Refused: unknown event id. Read the calendar again and use an id from that result.";
+    if (ref.recurring) return "Refused: repeating events can only be changed or deleted in the Calendar app for now. Tell him that.";
+    if (name === "delete_event") {
+      this.post({ who: "agent", agent: "valet", kind: "event", text: ref.title, data: { event: { ...publicEvent(ref), id: input.id, href: ref.href, op: "ask_delete" }, note: `Asked to confirm deleting: ${eventLine({ id: input.id, ...ref })}` } });
+      return "A card asking him to confirm is in the thread. Nothing is deleted until he taps it, so do not say it was deleted.";
+    }
+    const patch = { title: String(input.title || "").trim().slice(0, 200), location: input.location ? String(input.location).trim().slice(0, 200) : undefined };
+    const next = { ...ref };
+    if (input.start) {
+      const start = parts(input.start), allDay = !!input.all_day;
+      if (!start) return "Refused: start must look like 2026-11-18T15:00.";
+      let end = parts(input.end);
+      if (!end || (!allDay && ms(end) <= ms(start))) { const l = local(ms(start) + Math.max(900000, ref.end - ref.start)); end = allDay ? start : { y: l.y, mo: l.mo, d: l.d, h: l.h, mi: l.mi }; }
+      Object.assign(patch, { start, end, allDay });
+      Object.assign(next, { allDay, start: allDay ? ms({ ...start, h: 0, mi: 0 }) : ms(start), end: allDay ? ms(shiftDay({ ...end, h: 0, mi: 0 }, 1)) : ms(end) });
+    }
+    if (patch.title) next.title = patch.title;
+    if (patch.location) next.location = patch.location;
+    const done = await changeEvent(this.env, ref, patch);
+    next.etag = done.etag;
+    const ev = { id: input.id, ...next };
+    this.remember([ev]);
+    this.post({ who: "agent", agent: "valet", kind: "event", text: ev.title, data: { event: { ...publicEvent(ev), href: ev.href, op: "changed" }, note: `Changed to: ${eventLine(ev)}` } });
+    await this.syncCalendar().catch(() => {});
+    return `Changed, a card is in the thread: ${eventLine(ev)}`;
+  }
+
   async showTitle(type, id) {
     const t = await title(this.env, type, id);
     const w = t.watch;
@@ -514,7 +701,15 @@ export class Valet extends DurableObject {
       const next = row.repeat && row.repeat !== "none" ? nextRepeat(row.due, row.repeat, now) : null;
       if (next) this.sql.exec("UPDATE sched SET due = ? WHERE id = ?", next, row.id);
       else this.sql.exec("DELETE FROM sched WHERE id = ?", row.id);
-      if (row.builtin) await this.brief(row.builtin);
+      if (row.builtin && row.builtin.startsWith("cal:")) {
+        const start = +row.builtin.split(":").pop(), mins = Math.round((start - now) / 60000);
+        if (mins < -5) continue;
+        this.put("calFired", [...this.get("calFired", []), row.builtin].slice(-150));
+        const lead = mins <= 1 ? "Zaczyna się" : mins < 60 ? `Za ${mins} min` : `Za ${Math.round(mins / 60)} godz.`;
+        const [what, ...rest] = row.text.split(" · ");
+        const m = this.post({ who: "agent", agent: "valet", kind: "remind", text: `${lead}: **${what}**${rest.length ? ` (${rest.join(", ")})` : ""}` });
+        await this.notify("Kalendarz", m.text, true);
+      } else if (row.builtin) await this.brief(row.builtin);
       else {
         const m = this.post({ who: "agent", agent: "valet", kind: "remind", text: row.text });
         await this.notify("Przypomnienie", m.text, true);
@@ -527,9 +722,20 @@ export class Valet extends DurableObject {
     const s = this.settings(), now = Date.now(), days = kind === "weekly" ? 7 : 1;
     let wx = null;
     try { wx = await this.weather(0); } catch (err) { console.error("weather", String(err)); }
+    let agenda = null;
+    if (calendarOn(this.env)) {
+      try {
+        const l = local(now), from = fromLocal(l.y, l.mo, l.d, 0, 0);
+        const list = await this.calendarRange(from, from + days * 86400000);
+        agenda = { from: dayKey(now), days, events: list.slice(0, 60).map(publicEvent) };
+      } catch (err) {
+        console.error("calendar", String(err?.message || err));
+      }
+    }
     const facts = {
       kind,
       now: human(now),
+      calendar: agenda ? agenda.events.map((e) => `${span(e)}: ${e.title}${e.location ? ` @ ${e.location}` : ""}`) : "not connected",
       weather: wx ? (kind === "weekly" ? wx.week : wx.summary) : "unavailable",
       reminders: this.rows("SELECT due, text FROM sched WHERE builtin IS NULL AND due < ? ORDER BY due", now + days * 86400000).map((r) => ({ when: human(r.due), text: r.text })),
       tasks: this.rows("SELECT title, status FROM tasks WHERE status = 'running' OR updated > ? ORDER BY id DESC LIMIT 8", now - days * 86400000),
@@ -539,7 +745,7 @@ export class Valet extends DurableObject {
     const res = await ask(this.env, { model: s.models.text, max_tokens: 3000, system: BRIEF_SYSTEM, thinking: { type: "adaptive" }, output_config: { effort: "low" }, messages: [{ role: "user", content: JSON.stringify(facts) }] });
     this.addSpend(cost(res.usage, res.model || s.models.text));
     const title = kind === "weekly" ? "Weekly Briefing" : "Poranny brief";
-    const m = this.post({ who: "agent", agent: "kurier", kind: "brief", text: extract(res.content).text || "Dziś nic szczególnego.", data: { title, sky: wx?.sky || null, week: kind === "weekly" ? wx?.week || null : null } });
+    const m = this.post({ who: "agent", agent: "kurier", kind: "brief", text: extract(res.content).text || "Dziś nic szczególnego.", data: { title, sky: wx?.sky || null, week: kind === "weekly" ? wx?.week || null : null, agenda: agenda?.events.length ? agenda : null } });
     this.status("idle");
     await this.notify(title, m.text, true);
   }

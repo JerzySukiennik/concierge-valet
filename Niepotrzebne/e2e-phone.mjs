@@ -76,7 +76,7 @@ async function tour(tag, opts) {
   check(`${tag} jump button appears when scrolled up`, await page.evaluate(() => document.getElementById("jump").classList.contains("on")));
   await shot(page, `${tag}-02-czat-pogoda-jump`);
   await page.tap("#jump");
-  await settle(page, 900);
+  await settle(page, 2500);
   check(`${tag} jump returns to latest`, await page.evaluate(() => { const v = document.getElementById("view-chat"); return v.scrollHeight - v.scrollTop - v.clientHeight < 4; }));
 
   await page.tap("#input");

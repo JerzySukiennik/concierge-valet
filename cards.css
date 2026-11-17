@@ -83,6 +83,46 @@
 .kx-frame:active { transform: scale(.985); }
 .kx-cap { font-size: 12.5px; color: var(--muted); padding-left: 4px; }
 
+.kx.kx-cal { padding: 14px; }
+.kx-agenda { display: grid; gap: 14px; }
+.kx-day { display: grid; gap: 7px; }
+.kx-day + .kx-day { padding-top: 13px; border-top: 1px solid var(--kl); }
+.kx-dayhead { display: flex; align-items: baseline; gap: 8px; }
+.kx-dayhead strong { font: 500 17px/1.2 var(--serif); }
+.kx-dayhead span { font-size: 12.5px; color: var(--muted); }
+.kx-ribbon { position: relative; height: 12px; border-radius: 6px; background: var(--soft); overflow: hidden; margin-top: 2px; }
+.kx-ribbon i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: var(--c); opacity: .85; }
+.kx-ribbon b { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--fg); border-radius: 1px; }
+.kx-ticks { position: relative; height: 14px; margin-top: -3px; font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.kx-ticks span { position: absolute; transform: translateX(-50%); }
+.kx-ticks span:first-child { transform: none; }
+.kx-whole { display: flex; flex-wrap: wrap; gap: 6px; }
+.kx-whole span { display: inline-flex; align-items: center; gap: 7px; min-height: 26px; padding: 3px 10px 3px 8px; border-radius: 8px; background: var(--soft); font-size: 12.5px; font-weight: 500; }
+.kx-whole span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex: 0 0 auto; }
+.kx-ev { display: grid; grid-template-columns: 44px 3px minmax(0, 1fr) auto; gap: 10px; align-items: stretch; min-height: 38px; }
+.kx-when { display: grid; align-content: center; text-align: right; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.kx-when b { font-size: 13.5px; font-weight: 600; }
+.kx-when i { font-style: normal; font-size: 12px; color: var(--muted); }
+.kx-bar { border-radius: 2px; background: var(--c); }
+.kx-what { display: grid; align-content: center; gap: 1px; min-width: 0; }
+.kx-what strong { font-size: 14.5px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.kx-ev.kx-past { opacity: .5; }
+.kx-nowtag { align-self: center; font: italic 12.5px var(--serif); color: var(--accent); }
+.kx-free { font-size: 13px; color: var(--muted); }
+
+.kx.kx-event { padding: 14px; display: grid; gap: 12px; }
+.kx-evrow { display: flex; align-items: center; gap: 13px; }
+.kx-date { width: 46px; height: 50px; border-radius: 11px; background: var(--soft); display: grid; align-content: center; justify-items: center; flex: 0 0 auto; position: relative; overflow: hidden; }
+.kx-date::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--c); }
+.kx-date i { font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+.kx-date b { font: 500 21px/1 var(--serif); }
+.kx-evfoot { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--kl); }
+.kx-evfoot:has(.btn) { min-height: 43px; }
+.kx-state { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); }
+.kx-event.kx-gone .kx-what strong { text-decoration: line-through; color: var(--muted); }
+.kx-event.kx-gone .kx-date { opacity: .5; }
+.kx-event.kx-busy { opacity: .6; pointer-events: none; }
+
 .kx-light { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(12, 11, 9, .88); cursor: zoom-out; animation: kx-fade .22s ease-out both; }
 .kx-light.out { animation: kx-fade-out .28s ease-in both; }
 .kx-light img { width: min(92vw, calc(80vh * var(--ar, 1.5))); aspect-ratio: var(--ar, 1.5); object-fit: contain; border-radius: 10px; display: block; -webkit-touch-callout: default; -webkit-user-select: auto; user-select: auto; }

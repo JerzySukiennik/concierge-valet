@@ -26,7 +26,7 @@ await page.goto(`${origin}/${query}#k=${token}`);
 await page.waitForSelector("#app:not([hidden]) #thread .msg", { timeout: 15000 });
 const report = { kinds: {} };
 
-for (const [cls, name] of [["kx-vids", "karta-youtube"], ["kx-film", "karta-film"], ["kx-shelf", "karta-polka"], ["kx-shot", "karta-obrazek"]]) {
+for (const [cls, name] of [["kx-vids", "karta-youtube"], ["kx-film", "karta-film"], ["kx-shelf", "karta-polka"], ["kx-shot", "karta-obrazek"], ["kx-cal", "karta-kalendarz"], ["kx-event", "karta-wydarzenie"]]) {
   const n = await page.locator(`#thread .${cls}`).count();
   report.kinds[cls] = n;
   if (!n) continue;
@@ -54,6 +54,14 @@ if (tap && (await page.locator("#thread .kx-shelf .kx-tile").count())) {
   await page.waitForTimeout(1200);
   await page.evaluate(() => [...document.querySelectorAll("#thread .kx-film")].pop().scrollIntoView({ block: "start" }));
   await shot("karta-serial");
+}
+
+if (process.argv.includes("--delete") && (await page.locator("#thread .kx-event .btn:not(.ghost)").count())) {
+  const card = page.locator("#thread .kx-event").last();
+  await card.locator(".btn:not(.ghost)").tap();
+  await page.waitForSelector("#thread .kx-event.kx-gone", { timeout: 20000 });
+  report.deleteState = await page.locator("#thread .kx-event").last().locator(".kx-state").innerText();
+  await shot("karta-wydarzenie-usuniete");
 }
 
 await page.tap('[data-tab="make"]').catch(() => {});

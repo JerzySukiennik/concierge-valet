@@ -30,6 +30,24 @@ export function fromLocal(y, mo, d, h, mi) {
   return guess - (Date.UTC(l.y, l.mo - 1, l.d, l.h, l.mi) - guess);
 }
 
+const zones = new Map();
+function wall(ts, tz) {
+  let f = zones.get(tz);
+  if (!f) { f = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }); zones.set(tz, f); }
+  const p = Object.fromEntries(f.formatToParts(new Date(ts)).map((x) => [x.type, x.value]));
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+}
+
+export function fromZone(y, mo, d, h, mi, tz = TZ) {
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  try {
+    const first = guess - (wall(guess, tz) - guess);
+    return guess - (wall(first, tz) - first);
+  } catch (e) {
+    return fromLocal(y, mo, d, h, mi);
+  }
+}
+
 export function parseLocal(text) {
   const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(String(text || ""));
   return m ? fromLocal(+m[1], +m[2], +m[3], +m[4], +m[5]) : null;
