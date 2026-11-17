@@ -22,6 +22,7 @@ const links = new Map();
 
 export const CARD_KINDS = ["videos", "title", "titles", "image", "agenda", "event", "wa"];
 export const SIGNS = {
+  marka: () => "`Made by Concierge Valet`",
   made: (n) => `_Made by ${n}_`,
   asystent: (n, o) => `_${n}, asystent ${o}_`,
   napisal: (n, o) => `_Napisał ${n}, asystent AI. ${o} przeczytał i zatwierdził._`,

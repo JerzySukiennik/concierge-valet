@@ -156,12 +156,12 @@ enum WhatsAppStore {
         ((try? query("SELECT max(Z_PK) AS pk FROM ZWAMESSAGE"))?.first?["pk"] as? Int64) ?? 0
     }
 
-    static func fresh(after last: Int64, watch: [String]) throws -> [[String: Any]] {
+    static func fresh(after last: Int64, watch: [String], minutes: Double = 30) throws -> [[String: Any]] {
         let wanted = watch.map(fold).filter { !$0.isEmpty }
         guard !wanted.isEmpty else { return [] }
         let watched = try sessions().filter { chat in wanted.contains { fold(chat.name).hasPrefix($0) } }
         var out: [[String: Any]] = []
-        let recent = Date().timeIntervalSince1970 - epoch - 1800
+        let recent = Date().timeIntervalSince1970 - epoch - minutes * 60
         for chat in watched {
             let names = chat.group ? try authors(chat) : [:]
             let rows = try query("SELECT m.Z_PK AS id, m.ZMESSAGEDATE AS date, m.ZMESSAGETYPE AS type, m.ZTEXT AS text, m.ZGROUPMEMBER AS member, mi.ZTITLE AS caption FROM ZWAMESSAGE m LEFT JOIN ZWAMEDIAITEM mi ON mi.Z_PK = m.ZMEDIAITEM WHERE m.ZCHATSESSION = ? AND m.Z_PK > ? AND m.ZISFROMME = 0 AND m.ZMESSAGEDATE >= ? ORDER BY m.Z_PK LIMIT 60", [chat.pk, last, recent])

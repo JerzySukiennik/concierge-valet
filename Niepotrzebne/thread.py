@@ -31,7 +31,9 @@ def show(d, since=0):
             extra += f" sky={data['sky']['min']}..{data['sky']['max']} hours={len(data['sky']['hours'])}"
         if data.get("videos"):
             extra += f" videos={len(data['videos'])}"
-        if data.get("title"):
+        if data.get("wa"):
+            extra += f" wa={data['wa']['state']} to={data['wa']['chat']!r}"
+        if isinstance(data.get("title"), dict):
             t = data["title"]
             extra += f" title={t['name']} ({t['year']}) {t['type']} watch={bool(t['watch'])} trailer={t['trailer']}"
         if data.get("titles"):

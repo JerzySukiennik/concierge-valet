@@ -26,7 +26,7 @@ await page.goto(`${origin}/${query}#k=${token}`);
 await page.waitForSelector("#app:not([hidden]) #thread .msg", { timeout: 15000 });
 const report = { kinds: {} };
 
-for (const [cls, name] of [["kx-vids", "karta-youtube"], ["kx-film", "karta-film"], ["kx-shelf", "karta-polka"], ["kx-shot", "karta-obrazek"], ["kx-cal", "karta-kalendarz"], ["kx-event", "karta-wydarzenie"]]) {
+for (const [cls, name] of [["kx-vids", "karta-youtube"], ["kx-film", "karta-film"], ["kx-shelf", "karta-polka"], ["kx-shot", "karta-obrazek"], ["kx-cal", "karta-kalendarz"], ["kx-event", "karta-wydarzenie"], ["kx-wa", "karta-whatsapp"]]) {
   const n = await page.locator(`#thread .${cls}`).count();
   report.kinds[cls] = n;
   if (!n) continue;

@@ -16,6 +16,7 @@ const CARDS = { task: " (rozpoczęte zadanie w tle)", sky: " (karta pogody)", br
 const names = (list) => list.map((p) => p.name).join(", ");
 const SYNC = 30 * 60000;
 const SIGNS = {
+  marka: () => "`Made by Concierge Valet`",
   made: (n) => `_Made by ${n}_`,
   asystent: (n, o) => `_${n}, asystent ${o}_`,
   napisal: (n, o) => `_Napisał ${n}, asystent AI. ${o} przeczytał i zatwierdził._`,
@@ -45,7 +46,7 @@ function defaults(env) {
     city: { name: "Warszawa", lat: 52.23, lon: 21.01 },
     briefs: { daily: true, weekly: true, hour: 7, minute: 0 },
     calendar: { nudge: 30, home: "", hidden: [] },
-    whatsapp: { sign: "made", watch: ["Ogłoszenia klasowe 8K", "Klasa 8K"], proactive: true },
+    whatsapp: { sign: "marka", watch: ["Ogłoszenia klasowe 8K", "Klasa 8K"], proactive: true },
     agents: {
       valet: { name: "Valet", role: "Rozmawia z Tobą i rozdziela pracę", avatar: { type: "orbita", cfg: { pk: "#ffffff", ink: "#1d1c19", acc: "#1f5a46", sats: 1, tilt: -24 } } },
       atelier: { name: "Atelier", role: "Dokumenty i rzeczy wizualne", avatar: { type: "buzka", cfg: { pk: "#1f5a46", ink: "#f8f6f1", acc: "#f8f6f1", eye: "pill", gap: 13, mouth: "none" } } },
@@ -261,6 +262,18 @@ export class Valet extends DurableObject {
           return json({ ok: false, error: explain(err) });
         }
       }
+      case "POST /api/whatsapp/recheck": {
+        try {
+          const d = await this.bridgeCall("wa.fresh", { minutes: Math.max(1, Math.min(1440, +body.minutes || 120)) });
+          const list = (d.messages || []).slice(-80);
+          for (const x of list) this.sql.exec("INSERT INTO inbox (ts, chat, kind, sender, text) VALUES (?, ?, ?, ?, ?)", +x.ts || Date.now(), String(x.chat || "").slice(0, 120), x.group ? "group" : "person", String(x.from || "").slice(0, 80), String(x.text || "").slice(0, 1500));
+          this.put("inboxDue", Date.now());
+          await this.rearm();
+          return json({ ok: true, messages: list.length });
+        } catch (err) {
+          return json({ ok: false, error: String(err?.message || err).slice(0, 200) }, 502);
+        }
+      }
       case "POST /api/whatsapp/act": {
         const row = this.rows("SELECT * FROM msgs WHERE id = ? AND kind = 'wa'", +body.msg)[0];
         if (!row) return json({ error: "not found" }, 404);
@@ -272,6 +285,14 @@ export class Valet extends DurableObject {
         };
         if (!wa) return json({ error: "bad card" }, 400);
         if (body.act === "drop" && (wa.state === "draft" || wa.state === "failed")) { wa.state = "dropped"; save(); return json({ ok: true, wa }); }
+        if (body.act === "dry" && (wa.state === "draft" || wa.state === "failed")) {
+          try {
+            const d = await this.bridgeCall("wa.send", { chat: wa.chat, text: `${wa.text}\n\n${wa.sign}`, dry: true }, 80000);
+            return json({ ok: true, result: d.result, wa });
+          } catch (err) {
+            return json({ ok: false, error: String(err?.message || err).slice(0, 220), wa });
+          }
+        }
         if (body.act !== "send" || (wa.state !== "draft" && wa.state !== "failed")) return json({ ok: false, wa, error: "bad action" }, 400);
         const text = String(body.text ?? wa.text).trim().slice(0, 4000);
         if (!text) return json({ ok: false, wa, error: "empty" }, 400);
@@ -390,7 +411,7 @@ export class Valet extends DurableObject {
 
   signature() {
     const s = this.settings();
-    return (SIGNS[s.whatsapp.sign] || SIGNS.made)(s.agents.valet.name, s.owner === "Jurek" ? "Jurka" : s.owner);
+    return (SIGNS[s.whatsapp.sign] || SIGNS.marka)(s.agents.valet.name, s.owner === "Jurek" ? "Jurka" : s.owner);
   }
 
   async triage() {

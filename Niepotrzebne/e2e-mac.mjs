@@ -58,7 +58,7 @@ if (mode === "cards") {
   await page.waitForFunction(() => [...document.querySelectorAll("#thread .kx img")].every((i) => i.complete && i.naturalWidth > 0), null, { timeout: 20000 }).catch(() => {});
   report.kinds = await page.evaluate(() => ({ vids: document.querySelectorAll("#thread .kx-vids").length, film: document.querySelectorAll("#thread .kx-film").length, shelf: document.querySelectorAll("#thread .kx-shelf").length, shot: document.querySelectorAll("#thread .kx-shot").length, broken: [...document.querySelectorAll("#thread .kx img")].filter((i) => !i.naturalWidth).map((i) => i.src.slice(0, 80)) }));
   report.overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
-  for (const [cls, name] of [["kx-vids", "karta-youtube"], ["kx-film", "karta-film"], ["kx-shelf", "karta-polka"], ["kx-shot", "karta-obrazek"]]) {
+  for (const [cls, name] of [["kx-vids", "karta-youtube"], ["kx-film", "karta-film"], ["kx-shelf", "karta-polka"], ["kx-shot", "karta-obrazek"], ["kx-wa", "karta-whatsapp"]]) {
     const node = page.locator(`#thread .${cls}`).last();
     if (!(await node.count())) continue;
     await node.scrollIntoViewIfNeeded();

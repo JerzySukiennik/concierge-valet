@@ -79,7 +79,7 @@ const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1).replace(".", ","
 const isImage = (f) => String(f?.mime || "").startsWith("image/");
 const NUDGES = [[0, "Wyłączone"], [10, "10 min"], [15, "15 min"], [30, "30 min"], [60, "1 godz."]];
 const nudgeName = (n) => (NUDGES.find(([v]) => v === n) || NUDGES[0])[1];
-const signText = (key) => (SIGNS[key] || SIGNS.made)(S.settings?.agents?.valet?.name || "Valet", "Jurka").replace(/[_`]|^> /g, "");
+const signText = (key) => (SIGNS[key] || SIGNS.marka)(S.settings?.agents?.valet?.name || "Valet", "Jurka").replace(/[_`]|^> /g, "");
 const cards = {
   link: (id) => api("/api/file/link", { id, hold: true }).then((d) => d.url),
   post: (path, body) => api(path, body),
@@ -1119,7 +1119,7 @@ function settingsPage() {
     <div class="sec">WhatsApp</div>
     <div class="group">
       <div class="row"><span class="meta"><strong>Mac</strong></span><span class="val">${S.mac?.on ? (S.mac.wa ? "Połączony" : "Połączony, bez dostępu do WhatsAppa") : "Niepołączony"}</span></div>
-      <label class="row tap select-row"><span class="meta"><strong>Podpis</strong></span><span class="val" id="w-sign-val">${esc(signText(s.whatsapp?.sign))}</span>${ICON.updown}<select id="w-sign" aria-label="Podpis pod wiadomościami">${Object.keys(SIGNS).map((k) => `<option value="${k}"${(s.whatsapp?.sign || "made") === k ? " selected" : ""}>${esc(signText(k))}</option>`).join("")}</select></label>
+      <label class="row tap select-row"><span class="meta"><strong>Podpis</strong></span><span class="val" id="w-sign-val">${esc(signText(s.whatsapp?.sign))}</span>${ICON.updown}<select id="w-sign" aria-label="Podpis pod wiadomościami">${Object.keys(SIGNS).map((k) => `<option value="${k}"${(s.whatsapp?.sign || "marka") === k ? " selected" : ""}>${esc(signText(k))}</option>`).join("")}</select></label>
       <div class="row tap" data-switch="w-pro"><span class="meta"><strong>Pilnowanie rozmów</strong><span class="sub">Valet pyta, czy odpisać</span></span><button type="button" class="switch" role="switch" id="w-pro" aria-label="Pilnowanie rozmów" aria-checked="${s.whatsapp?.proactive !== false}"><i></i></button></div>
     </div>
     <p class="foot">Valet czyta WhatsAppa przez aplikację na Macu i niczego nie wysyła bez Twojego „Wyślij”. Pilnowane rozmowy ustawisz w aplikacji na Macu.</p>

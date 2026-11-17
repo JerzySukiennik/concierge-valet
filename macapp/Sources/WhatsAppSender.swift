@@ -34,10 +34,14 @@ enum WhatsAppSender {
         try keys(app, 51)
         try await type(app, query)
         var button: AXUIElement?
-        _ = await waitFor(5) { button = findChat(ax, target); return button != nil }
+        _ = await waitFor(5) { button = findChat(ax, target, query); return button != nil }
         guard let button else { try? keys(app, 53); throw Failure("Nie znalazłem w WhatsAppie czatu „\(target)”.") }
         AXUIElementPerformAction(button, kAXPressAction as CFString)
-        guard await waitFor(4, { header(ax, target) }) else { throw Failure("Nie otworzył się czat „\(target)”, nic nie wysłałem.") }
+        guard await waitFor(4, { header(ax, target) }) else {
+            NSLog("valet whatsapp: chat did not open, top of window: %@", seen(ax).joined(separator: " | "))
+            try? keys(app, 53)
+            throw Failure("Nie otworzył się czat „\(target)”, nic nie wysłałem.")
+        }
 
         var composer: AXUIElement?
         var clicked = false
@@ -254,28 +258,52 @@ enum WhatsAppSender {
         [string(el, kAXDescriptionAttribute)] + children(el).prefix(1).map { string($0, kAXDescriptionAttribute) }
     }
 
-    private static func findChat(_ ax: AXUIElement, _ target: String) -> AXUIElement? {
+    private static func matches(_ raw: String, _ target: String) -> Bool {
+        let c = clean(raw).lowercased()
+        if c.isEmpty { return false }
+        if label(target) == "you" { return c.hasSuffix("(you)") }
+        return label(raw) == label(target)
+    }
+
+    private static func findChat(_ ax: AXUIElement, _ target: String, _ query: String) -> AXUIElement? {
         guard let top = window(ax).flatMap(frame)?.minY else { return nil }
-        let want = label(target)
+        let typed = clean(query).lowercased()
+        guard let field = find(ax, { string($0, kAXRoleAttribute) == kAXTextFieldRole && clean(value($0) ?? "").lowercased() == typed }).flatMap(frame) else { return nil }
         return find(ax) {
-            guard string($0, kAXRoleAttribute) == kAXButtonRole, let f = frame($0), f.minY - top >= 90 else { return false }
-            return buttonLabels($0).contains { !$0.isEmpty && label($0) == want }
+            guard string($0, kAXRoleAttribute) == kAXButtonRole, let f = frame($0), f.minY - top >= 90, f.minY >= field.maxY, f.midX >= field.minX - 20, f.midX <= field.maxX + 20 else { return false }
+            return buttonLabels($0).contains { matches($0, target) }
         }
     }
 
     private static func header(_ ax: AXUIElement, _ target: String) -> Bool {
         guard let win = window(ax), let top = frame(win)?.minY else { return false }
-        let want = label(target)
         var stack = [win], seen = 0
         while let el = stack.popLast(), seen < 4000 {
             seen += 1
             if string(el, kAXRoleAttribute) == kAXButtonRole {
-                if let f = frame(el), f.minY - top < 90, buttonLabels(el).contains(where: { !$0.isEmpty && label($0) == want }) { return true }
+                if let f = frame(el), f.minY - top < 90, buttonLabels(el).contains(where: { matches($0, target) }) { return true }
                 continue
             }
             stack.append(contentsOf: children(el).reversed())
         }
         return false
+    }
+
+    private static func seen(_ ax: AXUIElement) -> [String] {
+        guard let win = window(ax), let top = frame(win)?.minY else { return [] }
+        var out: [String] = []
+        var stack = [win], visited = 0
+        while let el = stack.popLast(), visited < 4000, out.count < 30 {
+            visited += 1
+            let role = string(el, kAXRoleAttribute)
+            if let f = frame(el), f.minY - top < 260, role == kAXButtonRole || role == kAXStaticTextRole || role == "AXHeading" {
+                let text = ([string(el, kAXDescriptionAttribute), string(el, kAXTitleAttribute), value(el) ?? ""] + children(el).prefix(1).map { string($0, kAXDescriptionAttribute) }).map(clean).filter { !$0.isEmpty }
+                if !text.isEmpty { out.append("\(role.replacingOccurrences(of: "AX", with: "")) \(Int(f.minY - top)),\(Int(f.minX)): \(text.joined(separator: " / ").prefix(40))") }
+            }
+            if role == kAXButtonRole { continue }
+            stack.append(contentsOf: children(el).reversed())
+        }
+        return out
     }
 
     private static func press(_ ax: AXUIElement, _ name: String) -> Bool {

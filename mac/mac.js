@@ -689,7 +689,7 @@ function openSettings() {
     <h3>Mac i WhatsApp</h3>
     <div class="note">${S.mac.on ? `Ten Mac jest połączony z Valetem${S.mac.wa ? " i ma dostęp do danych WhatsAppa." : ", ale nie ma jeszcze dostępu do danych WhatsAppa."}` : "Mac nie jest połączony. Valet sięga do WhatsAppa tylko wtedy, gdy ta aplikacja działa na Macu."} Valet niczego nie wysyła sam: wiadomość wychodzi dopiero po Twoim „Wyślij” na karcie, przez zwykłą aplikację WhatsApp.</div>
     ${shell && S.mac.on && !S.mac.ax ? '<div class="actions"><button class="btn ghost" id="ax-grant">Nadaj uprawnienie do wysyłania</button><span class="note">macOS otworzy ustawienia Dostępności.</span></div>' : ""}
-    <div class="f"><span>Podpis</span><select id="w-sign">${Object.keys(SIGNS).map((k) => `<option value="${k}"${(s.whatsapp?.sign || "made") === k ? " selected" : ""}>${esc(SIGNS[k](s.agents.valet.name, "Jurka").replace(/[_`]|^> /g, ""))}</option>`).join("")}</select></div>
+    <div class="f"><span>Podpis</span><select id="w-sign">${Object.keys(SIGNS).map((k) => `<option value="${k}"${(s.whatsapp?.sign || "marka") === k ? " selected" : ""}>${esc(SIGNS[k](s.agents.valet.name, "Jurka").replace(/[_`]|^> /g, ""))}</option>`).join("")}</select></div>
     <label class="switch">Pilnuj rozmów i pytaj, czy odpisać<input type="checkbox" id="w-pro"${s.whatsapp?.proactive !== false ? " checked" : ""}></label>
     <div class="f"><span>Pilnowane</span><input type="text" id="w-watch" value="${esc((s.whatsapp?.watch || []).join(", "))}" placeholder="Nazwy rozmów po przecinku"></div>
     <h3>Wydatki</h3>
