@@ -188,6 +188,16 @@ export class Valet extends DurableObject {
         this.status("idle");
         return json({ ok: true });
       }
+      case "POST /api/selftest": {
+        try {
+          const model = this.settings().models.text;
+          const res = await ask(this.env, { model, max_tokens: 200, messages: [{ role: "user", content: "Odpowiedz jednym słowem: ok" }] });
+          this.addSpend(cost(res.usage, res.model || model));
+          return json({ ok: true, model: res.model, text: extract(res.content).text.slice(0, 40) });
+        } catch (err) {
+          return json({ ok: false, error: explain(err) });
+        }
+      }
       case "POST /api/fact/delete":
         this.sql.exec("DELETE FROM facts WHERE id = ?", +body.id);
         return json({ facts: this.rows("SELECT * FROM facts ORDER BY id") });

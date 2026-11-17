@@ -19,6 +19,8 @@ const STATES = [["idle", "Spokój"], ["listening", "Słucha"], ["thinking", "My�
 const S = { token: store.get("valet-token") || "", settings: null, byId: new Map(), tasks: new Map(), files: [], sched: [], facts: [], spend: { today: 0, month: 0, limit: 6 }, status: { state: "idle", text: "" }, vapid: "", push: 0, tab: "chat", ws: null, lastDay: "", pending: [], retry: 1000 };
 const puck = $("puck"), thread = $("thread"), chat = $("view-chat"), input = $("input");
 let typingNode = null, statusTimer = 0, listenTimer = 0, speakTimer = 0, local = "";
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const standalone = () => navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
 
 async function api(path, body) {
   const res = await fetch(API + path, { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${S.token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -191,6 +193,7 @@ function renderThread(msgs) {
   S.pending = [];
   if (!msgs.length) thread.append(el("div", "sys", "To początek rozmowy. Napisz, czego potrzebujesz."));
   msgs.forEach((m) => addMsg(m, false));
+  if (IOS && !standalone()) thread.append(el("div", "sys", "Dodaj apkę do ekranu początkowego: Udostępnij, potem „Do ekranu początkowego”, i otwieraj ją stamtąd. Dopiero wtedy działają powiadomienia."));
   showTyping(!!S.status.turn);
   toBottom();
 }
@@ -401,6 +404,7 @@ async function start() {
     toBottom();
     connect();
     refreshPush();
+    carryToken();
     const q = new URLSearchParams(location.search);
     if (["tasks", "make"].includes(q.get("tab"))) setTab(q.get("tab"));
     if (q.get("sheet") === "agents") openAgents(S.settings.agents[q.get("agent")] ? q.get("agent") : "valet");
@@ -672,8 +676,16 @@ function fromLink() {
   if (!linked) return false;
   S.token = linked[1];
   store.set("valet-token", S.token);
-  history.replaceState(null, "", location.pathname);
+  if (standalone() || LOCAL) history.replaceState(null, "", location.pathname);
   return true;
+}
+
+function carryToken() {
+  const link = document.querySelector('link[rel="manifest"]');
+  if (!link || !S.token || standalone() || LOCAL) return;
+  const base = location.origin + location.pathname;
+  const manifest = { name: "Concierge Valet", short_name: "Valet", lang: "pl", start_url: `${base}#k=${S.token}`, scope: base, display: "standalone", orientation: "portrait", background_color: "#f8f6f1", theme_color: "#f8f6f1", icons: [192, 512].map((n) => ({ src: `${base}icons/icon-${n}.png`, sizes: `${n}x${n}`, type: "image/png" })) };
+  link.href = `data:application/manifest+json;charset=utf-8,${encodeURIComponent(JSON.stringify(manifest))}`;
 }
 
 watch(puck);
