@@ -1,9 +1,11 @@
 /* Concierge Valet for Mac: desktop client for the same thread, with a sidebar, an inspector, keyboard shortcuts and a native shell bridge. */
 import { TYPES, SWATCHES, defaults, mount, watch, look, poke, setState } from "../avatar.js";
+import { CARD_KINDS, card as connectorCard, openImage, thumb } from "../cards.js";
 
 const V = window.VALET || {};
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname) && !V.api;
-const API = V.api || (LOCAL ? "http://127.0.0.1:8790" : "https://concierge-valet-api.kalakasanyt.workers.dev");
+const devPort = /^\d{4,5}$/.test(new URLSearchParams(location.search).get("api") || "") ? new URLSearchParams(location.search).get("api") : "8790";
+const API = V.api || (LOCAL ? `http://127.0.0.1:${devPort}` : "https://concierge-valet-api.kalakasanyt.workers.dev");
 const shell = window.webkit?.messageHandlers?.valet || null;
 const native = (msg) => { try { shell?.postMessage(msg); } catch (e) {} };
 const $ = (id) => document.getElementById(id);
@@ -69,6 +71,12 @@ const plain = (text) => String(text || "").replace(/\*\*/g, "").replace(/\[([^\]
 const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1).replace(".", ",")} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const money = (n) => n.toFixed(2).replace(".", ",");
 const agentOf = (key) => S.settings.agents[key] || S.settings.agents.valet;
+const isImage = (f) => String(f?.mime || "").startsWith("image/");
+const cards = {
+  link: (id) => api("/api/file/link", { id, hold: true }).then((d) => d.url),
+  post: (path, body) => api(path, body),
+  open: (url) => { if (shell) native({ type: "open", url }); else window.open(url, "_blank", "noopener"); },
+};
 
 function mini(key, state = "idle") {
   const p = el("div", "puck");
@@ -112,8 +120,10 @@ function skyNode(sky) {
 function fileNode(f, withDate = false) {
   const card = el("div", "card file");
   card.dataset.open = f.id;
-  const ext = (f.name.split(".").pop() || "").slice(0, 4).toUpperCase();
-  card.innerHTML = `<span class="ico">${esc(ext)}</span><div class="grid-meta"><strong>${esc(f.name)}</strong><span class="sub">${size(f.size)}${withDate && f.ts ? ` · ${shortDay.format(new Date(f.ts))}` : ""}</span></div><button class="btn">Otwórz</button>`;
+  const ext = (f.name.split(".").pop() || "").slice(0, 4).toUpperCase(), pic = isImage(f);
+  card.innerHTML = `<span class="ico${pic ? " pic" : ""}">${pic ? "" : esc(ext)}</span><div class="grid-meta"><strong>${esc(pic ? f.name.replace(/\.\w+$/, "") : f.name)}</strong><span class="sub">${pic ? "Obrazek · " : ""}${size(f.size)}${withDate && f.ts ? ` · ${shortDay.format(new Date(f.ts))}` : ""}</span></div>${pic && withDate ? "" : `<button class="btn">${pic ? "Pokaż" : "Otwórz"}</button>`}`;
+  if (pic) card.querySelector(".ico").append(thumb(f, cards));
+  if (pic && withDate) card.classList.add("pic-tile");
   return card;
 }
 
@@ -148,6 +158,10 @@ function nodes(m) {
     card.append(skyNode(m.data.sky));
     out.push(card);
     return out;
+  }
+  if (CARD_KINDS.includes(m.kind)) {
+    const card = connectorCard(m, cards);
+    if (card) { out.push(card); return out; }
   }
   if (m.kind === "brief") {
     const card = el("div", "card brief", `<h3>${esc(m.data?.title || "Brief")}</h3><div class="text">${md(m.text)}</div>`);
@@ -233,7 +247,7 @@ function addMsg(m, live = true) {
   else if (live && m.who !== "me") { S.missed++; paintJump(); }
   if (live && m.who === "agent") {
     if (S.status.state === "idle") flash("speaking", 1300);
-    if (!document.hasFocus()) {
+    if (!document.hasFocus() && !CARD_KINDS.includes(m.kind)) {
       S.unread++;
       native({ type: "badge", count: S.unread });
       native({ type: "notify", title: agentOf(m.agent).name, body: plain(m.text).slice(0, 220) });
@@ -346,7 +360,7 @@ function renderTasks(animate = true) {
 function renderFiles() {
   const box = $("files");
   box.textContent = "";
-  if (!S.files.length) { box.append(el("div", "empty", "Tu trafiają pliki, które zrobią dla Ciebie agenci: PDF, dokumenty, arkusze, prezentacje i małe strony.")); return; }
+  if (!S.files.length) { box.append(el("div", "empty", "Tu trafiają pliki, które zrobią dla Ciebie agenci: PDF, dokumenty, arkusze, prezentacje, małe strony i obrazki.")); return; }
   const tiles = el("div", "tiles");
   S.files.forEach((f) => tiles.append(fileNode(f, true)));
   box.append(tiles);
@@ -453,7 +467,9 @@ function applySettings(settings) {
   paintStatus();
 }
 
-async function openFile(id) {
+async function openFile(id, from = null) {
+  const f = S.files.find((x) => x.id === id);
+  if (isImage(f)) return openImage(f, from?.querySelector(".ico") || null, cards).catch(() => {});
   const win = shell ? null : window.open("", "_blank");
   try {
     const { url } = await api("/api/file/link", { id });
@@ -660,7 +676,7 @@ document.addEventListener("click", async (e) => {
   const cancel = t.closest("[data-cancel]");
   if (cancel) { cancel.disabled = true; return api("/api/task/cancel", { id: +cancel.dataset.cancel }).catch(() => {}); }
   const open = t.closest("[data-open]");
-  if (open) return openFile(open.dataset.open);
+  if (open) return openFile(open.dataset.open, open);
   const copy = t.closest("[data-copy]");
   if (copy) {
     const m = S.byId.get(+copy.dataset.copy), text = m ? plain(m.text) : copy.closest(".line").querySelector(".msg").textContent;

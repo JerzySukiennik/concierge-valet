@@ -1,11 +1,12 @@
 """Dev helper: send a message to the local Valet worker and print the thread, tasks and spend."""
 import json
+import os
 import pathlib
 import sys
 import time
 import urllib.request
 
-API = "http://127.0.0.1:8790"
+API = os.environ.get("VALET_API", "http://127.0.0.1:8790")
 VARS = pathlib.Path(__file__).resolve().parent.parent / "worker" / ".dev.vars"
 TOKEN = next(line.split("=", 1)[1].strip() for line in VARS.read_text().splitlines() if line.startswith("ACCESS_TOKEN="))
 
@@ -28,6 +29,16 @@ def show(d, since=0):
             extra += f" sources={len(data['sources'])}"
         if data.get("sky"):
             extra += f" sky={data['sky']['min']}..{data['sky']['max']} hours={len(data['sky']['hours'])}"
+        if data.get("videos"):
+            extra += f" videos={len(data['videos'])}"
+        if data.get("title"):
+            t = data["title"]
+            extra += f" title={t['name']} ({t['year']}) {t['type']} watch={bool(t['watch'])} trailer={t['trailer']}"
+        if data.get("titles"):
+            extra += f" titles={len(data['titles'])}"
+        if data.get("image"):
+            i = data["image"]
+            extra += f" image={i['name']} {i['w']}x{i['h']} {i['size']} B id={i['id']}"
         if m.get("reply_to"):
             extra += f" reply_to={m['reply_to']}"
         print(f"#{m['id']} {m['who']}/{m.get('agent') or '-'} [{m['kind']}]{extra}\n   {m['text']}")

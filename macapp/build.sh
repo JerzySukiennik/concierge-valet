@@ -9,7 +9,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 rm -rf build && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/web"
 swiftc -O -swift-version 5 -target "$ARCH-apple-macosx14.0" Sources/*.swift -o "$APP/Contents/MacOS/ConciergeValet"
 cp Info.plist "$APP/Contents/Info.plist"
-cp -R "$ROOT/mac" "$ROOT/avatar.js" "$ROOT/avatar.css" "$ROOT/icons" "$APP/Contents/Resources/web/"
+cp -R "$ROOT/mac" "$ROOT/avatar.js" "$ROOT/avatar.css" "$ROOT/cards.js" "$ROOT/cards.css" "$ROOT/icons" "$APP/Contents/Resources/web/"
 if [ -x "$CHROME" ]; then
   nice -n 10 "$CHROME" --headless=new --hide-scrollbars --disable-gpu --default-background-color=00000000 --force-device-scale-factor=1 --window-size=1024,1024 --screenshot="$PWD/build/icon-1024.png" "file://$PWD/icon.html" >/dev/null 2>&1 || true
 fi

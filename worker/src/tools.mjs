@@ -50,6 +50,47 @@ const CUSTOM = [
     strict: true,
     input_schema: obj({ day: { type: "string", enum: ["today", "tomorrow"] } }),
   },
+  {
+    name: "youtube_search",
+    description: "Search YouTube and put a card with the best videos into the thread; he taps a video to open it in the YouTube app. The result lists the same videos for you. Use it when he asks for a video, a tutorial, a channel's uploads or something to watch on YouTube.",
+    strict: true,
+    input_schema: obj({
+      query: { type: "string", description: "Search words, in the language the videos should be in" },
+      order: { type: "string", enum: ["relevance", "date", "views"], description: "relevance by default, date for the newest uploads, views for the most watched" },
+    }),
+  },
+  {
+    name: "show_title",
+    description: "Put a card about one film or series into the thread: poster, year, rating, plot, makers, trailer and where it can be watched in Poland. The result gives you the same facts and the other matches. Use it for any question about a specific film or series.",
+    strict: true,
+    input_schema: obj({
+      query: { type: "string", description: "Title to look for, Polish or original" },
+      type: { type: "string", enum: ["any", "movie", "tv"] },
+      year: { type: "integer", description: "Release year when he gave one or it is needed to tell titles apart, otherwise 0" },
+      id: { type: "integer", description: "TMDB id from an earlier result when you want exactly that title, otherwise 0" },
+    }),
+  },
+  {
+    name: "show_titles",
+    description: "Put a row of film and series posters into the thread; he taps a poster to get the full card. Use it when he wants several options: what to watch, something similar to a title, what is popular or what is in cinemas.",
+    strict: true,
+    input_schema: obj({
+      list: { type: "string", enum: ["search", "similar", "trending", "in_cinemas"], description: "search: titles matching the query. similar: recommendations based on the title in the query. trending: most popular this week. in_cinemas: films now showing in Poland" },
+      query: { type: "string", description: "Title or search words for search and similar, empty for the other lists" },
+      type: { type: "string", enum: ["any", "movie", "tv"] },
+    }),
+  },
+  {
+    name: "make_image",
+    description: "Generate an image and post it into the thread; it is also saved in his files. Use it when he asks for a picture, a mockup, a concept, an icon or a visualisation. You do not see the result.",
+    strict: true,
+    input_schema: obj({
+      title: { type: "string", description: "Short Polish name of the picture, two to five words, used as the caption and the file name" },
+      prompt: { type: "string", description: "The prompt in English, concrete, one paragraph: subject, style, composition, light. Put exact on-screen text in single quotes ('LAUNCH') and place elements by position (top-left, bottom-center)" },
+      aspect: { type: "string", enum: ["16:9", "3:2", "4:3", "1:1", "3:4", "2:3", "9:16"], description: "16:9 by default, 9:16 for a phone screen or a wallpaper, 1:1 for an icon or an avatar" },
+      quality: { type: "string", enum: ["low", "medium", "high"], description: "low unless he explicitly asks for better quality; medium and high cost several times more" },
+    }),
+  },
 ];
 
 export function chatTools(model) {

@@ -10,7 +10,8 @@ export const PRICES = {
 export function cost(u, model) {
   if (!u) return 0;
   const [input, output, read] = PRICES[model] || PRICES["claude-opus-5-5"];
-  const tokens = ((u.input_tokens || 0) * input + (u.output_tokens || 0) * output + (u.cache_read_input_tokens || 0) * read + (u.cache_creation_input_tokens || 0) * input * 1.25) / 1e6;
+  const hour = u.cache_creation?.ephemeral_1h_input_tokens || 0, short = Math.max(0, (u.cache_creation_input_tokens || 0) - hour);
+  const tokens = ((u.input_tokens || 0) * input + (u.output_tokens || 0) * output + (u.cache_read_input_tokens || 0) * read + short * input * 1.25 + hour * input * 2) / 1e6;
   return tokens + (u.server_tool_use?.web_search_requests || 0) * 0.01;
 }
 

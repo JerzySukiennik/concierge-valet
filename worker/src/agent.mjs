@@ -36,7 +36,7 @@ export function explain(err) {
 }
 
 const SERVER_LABELS = { web_search: "Szuka w sieci", web_fetch: "Czyta stronę", bash_code_execution: "Pracuje w piaskownicy", text_editor_code_execution: "Pisze plik", code_execution: "Liczy" };
-const TOOL_LABELS = { start_task: "Zleca zadanie", remember: "Zapamiętuje", forget: "Zapomina", schedule: "Ustawia przypomnienie", show_weather: "Sprawdza pogodę" };
+const TOOL_LABELS = { start_task: "Zleca zadanie", remember: "Zapamiętuje", forget: "Zapomina", schedule: "Ustawia przypomnienie", show_weather: "Sprawdza pogodę", youtube_search: "Szuka na YouTube", show_title: "Szuka tytułu", show_titles: "Wybiera tytuły", make_image: "Rysuje obrazek" };
 
 export function label(e) {
   if (e.type !== "content_block_start") return null;

@@ -18,7 +18,7 @@ page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 page.on("pageerror", (e) => errors.push(String(e)));
 const shot = async (name) => { await page.waitForTimeout(900); await page.screenshot({ path: join(out, `${name}${dark ? "-dark" : ""}.png`) }); };
 
-await page.goto(`http://localhost:2141/mac/#k=${token}`);
+await page.goto(`${process.env.VALET_APP || "http://localhost:2141"}/mac/${process.env.VALET_API_PORT ? `?api=${process.env.VALET_API_PORT}` : ""}#k=${token}`);
 await page.waitForSelector("#app:not([hidden]) #thread > *", { timeout: 15000 });
 const report = { hashStripped: await page.evaluate(() => location.hash === "") };
 
@@ -52,6 +52,30 @@ if (mode === "look") {
   await page.click("#insp-btn");
   await page.setViewportSize({ width: 900, height: 640 });
   await shot("waskie");
+}
+
+if (mode === "cards") {
+  await page.waitForFunction(() => [...document.querySelectorAll("#thread .kx img")].every((i) => i.complete && i.naturalWidth > 0), null, { timeout: 20000 }).catch(() => {});
+  report.kinds = await page.evaluate(() => ({ vids: document.querySelectorAll("#thread .kx-vids").length, film: document.querySelectorAll("#thread .kx-film").length, shelf: document.querySelectorAll("#thread .kx-shelf").length, shot: document.querySelectorAll("#thread .kx-shot").length, broken: [...document.querySelectorAll("#thread .kx img")].filter((i) => !i.naturalWidth).map((i) => i.src.slice(0, 80)) }));
+  report.overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+  for (const [cls, name] of [["kx-vids", "karta-youtube"], ["kx-film", "karta-film"], ["kx-shelf", "karta-polka"], ["kx-shot", "karta-obrazek"]]) {
+    const node = page.locator(`#thread .${cls}`).last();
+    if (!(await node.count())) continue;
+    await node.scrollIntoViewIfNeeded();
+    await page.evaluate((c) => { const n = [...document.querySelectorAll(`#thread .${c}`)].pop(); n.scrollIntoView({ block: "center" }); }, cls);
+    await shot(name);
+  }
+  if (await page.locator("#thread .kx-shot .kx-frame").count()) {
+    await page.locator("#thread .kx-shot .kx-frame").last().click();
+    await page.waitForSelector(".kx-light img");
+    await shot("obrazek-powiekszony");
+    report.lightRatio = await page.evaluate(() => { const r = document.querySelector(".kx-light img").getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".kx-light", { state: "detached" });
+  }
+  await page.click('[data-view="files"]');
+  await page.waitForSelector("#view-files:not([hidden])");
+  await shot("pliki-obrazki");
 }
 
 if (mode === "send") {

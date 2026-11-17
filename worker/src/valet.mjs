@@ -3,12 +3,16 @@ import { DurableObject } from "cloudflare:workers";
 import { ask, explain, extract, label } from "./agent.mjs";
 import { SYSTEM, BRIEF_SYSTEM } from "./prompt.mjs";
 import { chatTools } from "./tools.mjs";
+import { clockOf, findTitles, image, title, titleList, youtube } from "./connectors.mjs";
 import { sendPush } from "./push.mjs";
 import { cost, dayKey, hm, human, isoLocal, json, local, nextAt, nextRepeat, parseLocal, sign } from "./util.mjs";
 
 const PIXELS = ["..1111..", ".114411.", "11111111", ".22..22.", ".22..22.", "........", ".3....3.", "..3333.."];
 const MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"];
 const AVATARS = ["orbita", "buzka", "piksel"];
+const CHUNK = 1000000;
+const CARDS = { task: " (rozpoczęte zadanie w tle)", sky: " (karta pogody)", brief: " (brief)", remind: " (przypomnienie)", videos: " (karta z filmami z YouTube)", title: " (karta filmu lub serialu)", titles: " (karta z plakatami tytułów)", image: " (wygenerowany obrazek)" };
+const names = (list) => list.map((p) => p.name).join(", ");
 
 function defaults(env) {
   return {
@@ -39,12 +43,26 @@ export class Valet extends DurableObject {
     s.exec("CREATE TABLE IF NOT EXISTS subs (endpoint TEXT PRIMARY KEY, body TEXT, ts INTEGER)");
     s.exec("CREATE TABLE IF NOT EXISTS spend (day TEXT PRIMARY KEY, usd REAL, calls INTEGER)");
     s.exec("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)");
+    s.exec("CREATE TABLE IF NOT EXISTS blobs (id TEXT, seq INTEGER, data BLOB, PRIMARY KEY (id, seq))");
     ctx.blockConcurrencyWhile(async () => { this.seed(); await this.rearm(); });
   }
 
   rows(query, ...args) { return this.sql.exec(query, ...args).toArray(); }
   get(k, fallback = null) { const r = this.rows("SELECT v FROM kv WHERE k = ?", k)[0]; return r ? JSON.parse(r.v) : fallback; }
   put(k, v) { this.sql.exec("INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", k, JSON.stringify(v)); }
+
+  saveBlob(id, bytes) {
+    for (let seq = 0, off = 0; off < bytes.length; seq++, off += CHUNK) this.sql.exec("INSERT INTO blobs (id, seq, data) VALUES (?, ?, ?)", id, seq, bytes.slice(off, off + CHUNK).buffer);
+  }
+
+  readBlob(id) {
+    const parts = this.rows("SELECT data FROM blobs WHERE id = ? ORDER BY seq", id).map((r) => new Uint8Array(r.data));
+    if (!parts.length) return null;
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let off = 0;
+    for (const p of parts) { out.set(p, off); off += p.length; }
+    return out;
+  }
 
   settings() {
     const d = defaults(this.env), s = this.get("settings", {});
@@ -129,6 +147,10 @@ export class Valet extends DurableObject {
       pair[1].send(JSON.stringify({ t: "status", ...this.currentStatus() }));
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
+    if (path === "/internal/blob") {
+      const bytes = this.readBlob(url.searchParams.get("id") || "");
+      return bytes ? new Response(bytes) : new Response("not found", { status: 404 });
+    }
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     if (path === "/internal/task") return this.taskEvent(body);
 
@@ -176,7 +198,7 @@ export class Valet extends DurableObject {
       case "POST /api/file/link": {
         const f = this.rows("SELECT * FROM files WHERE id = ?", String(body.id || ""))[0];
         if (!f) return json({ error: "not found" }, 404);
-        const e = Date.now() + 15 * 60000;
+        const e = body.hold ? (Math.floor(Date.now() / 21600000) + 2) * 21600000 : Date.now() + 15 * 60000;
         const s = await sign(this.env.ACCESS_TOKEN, `${f.id}|${e}|${f.mime}`);
         return json({ url: `${url.origin}/f/${f.id}/${encodeURIComponent(f.name)}?e=${e}&m=${encodeURIComponent(f.mime)}&s=${s}` });
       }
@@ -198,12 +220,23 @@ export class Valet extends DurableObject {
           return json({ ok: false, error: explain(err) });
         }
       }
+      case "POST /api/title": {
+        if (!+body.id) return json({ error: "bad id" }, 400);
+        try {
+          await this.showTitle(body.type === "tv" ? "tv" : "movie", +body.id);
+          return json({ ok: true });
+        } catch (err) {
+          return json({ error: String(err?.message || err).slice(0, 200) }, 502);
+        }
+      }
       case "POST /api/fact/delete":
         this.sql.exec("DELETE FROM facts WHERE id = ?", +body.id);
+        this.broadcast({ t: "facts", facts: this.rows("SELECT * FROM facts ORDER BY id") });
         return json({ facts: this.rows("SELECT * FROM facts ORDER BY id") });
       case "POST /api/sched/delete":
         this.sql.exec("DELETE FROM sched WHERE id = ? AND builtin IS NULL", +body.id);
         await this.rearm();
+        this.broadcast({ t: "sched", sched: this.rows("SELECT * FROM sched ORDER BY due") });
         return json({ sched: this.rows("SELECT * FROM sched ORDER BY due") });
       default:
         return json({ error: "not found" }, 404);
@@ -263,9 +296,9 @@ export class Valet extends DurableObject {
     const s = this.settings(), owner = s.owner;
     const line = (m) => {
       const who = m.who === "me" ? owner : m.who === "sys" ? "System" : s.agents[m.agent]?.name || "Valet";
-      const extra = m.kind === "task" ? " (rozpoczęte zadanie w tle)" : m.kind === "sky" ? " (karta pogody)" : m.kind === "brief" ? " (brief)" : m.kind === "remind" ? " (przypomnienie)" : "";
       const files = m.data?.files?.length ? ` [pliki: ${m.data.files.map((f) => f.name).join(", ")}]` : "";
-      return `[${hm(m.ts)}] ${who}${extra}: ${String(m.text || "").slice(0, 900)}${files}`;
+      const note = m.data?.note ? `\n${String(m.data.note).slice(0, 800)}` : "";
+      return `[${hm(m.ts)}] ${who}${CARDS[m.kind] || ""}: ${String(m.text || "").slice(0, 900)}${files}${note}`;
     };
     const prior = this.msgs(fresh[fresh.length - 1].id + 1, 34).filter((m) => !(m.who === "me" && m.id > cursor));
     const facts = this.rows("SELECT id, text FROM facts ORDER BY id");
@@ -290,6 +323,7 @@ export class Valet extends DurableObject {
     const s = this.settings(), budget = this.spend();
     const model = budget.today >= budget.limit ? s.models.text : s.models.chat;
     this.status("thinking", "Myśli", true);
+    this.drawn = 0;
     const messages = [{ role: "user", content: this.context(fresh, cursor) }];
     let shown = "", reply = "", sources = [];
     for (let i = 0; i < 8; i++) {
@@ -297,7 +331,7 @@ export class Valet extends DurableObject {
         model,
         max_tokens: 16000,
         cache_control: { type: "ephemeral" },
-        system: SYSTEM,
+        system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral", ttl: "1h" } }],
         tools: chatTools(model),
         thinking: { type: "adaptive" },
         output_config: { effort: "low" },
@@ -388,7 +422,64 @@ export class Valet extends DurableObject {
       this.post({ who: "agent", agent: "valet", kind: "sky", text: wx.summary, data: { sky: wx.sky } });
       return `Card posted. ${wx.summary}`;
     }
+    if (name === "youtube_search") {
+      const query = String(input.query).slice(0, 200);
+      const list = await youtube(this.env, { query, order: input.order, count: 5 });
+      if (!list.length) return `No videos found for "${query}".`;
+      const note = list.map((v, i) => `${i + 1}. ${v.title} | ${v.channel} | ${v.live ? "live" : clockOf(v.seconds)} | ${v.views} views | ${dayKey(v.published)} | https://youtu.be/${v.id}`).join("\n");
+      this.post({ who: "agent", agent: "valet", kind: "videos", text: query, data: { videos: list, note } });
+      return `Card with ${list.length} videos posted.\n${note}`;
+    }
+    if (name === "show_title") {
+      let type = input.type, id = +input.id || 0, others = [];
+      if (id && type === "any") return "Refused: with an id the type must be movie or tv.";
+      if (!id) {
+        const found = await findTitles(this.env, { query: String(input.query).slice(0, 200), type, year: +input.year || 0 });
+        if (!found.length) return `Nothing found for "${input.query}".`;
+        ({ type, id } = found[0]);
+        others = found.slice(1, 5);
+      }
+      const t = await this.showTitle(type, id);
+      const rest = others.length ? `\nOther matches: ${others.map((o) => `${o.name} (${o.year || "?"}, ${o.type}, id ${o.id})`).join("; ")}` : "";
+      return `Card posted. ${t.note}${t.overview ? `\nPlot: ${t.overview.slice(0, 500)}` : ""}${t.cast.length ? `\nCast: ${t.cast.join(", ")}` : ""}${rest}`;
+    }
+    if (name === "show_titles") {
+      const query = String(input.query || "").trim().slice(0, 200);
+      if ((input.list === "search" || input.list === "similar") && !query) return "Refused: this list needs a query.";
+      const { label, titles } = await titleList(this.env, { list: input.list, query, type: input.type });
+      const top = titles.filter((t) => t.poster).slice(0, 10);
+      if (!top.length) return "Nothing found.";
+      const note = top.map((t, i) => `${i + 1}. ${t.name} (${t.year || "?"}, ${t.type}, id ${t.id}${t.rating ? `, ${t.rating}/10` : ""})`).join("; ");
+      this.post({ who: "agent", agent: "valet", kind: "titles", text: label, data: { titles: top, note } });
+      return `Row of ${top.length} posters posted under "${label}". ${note}`;
+    }
+    if (name === "make_image") {
+      const budget = this.spend();
+      if (budget.today >= budget.limit) return "Refused: the daily budget is used up, so no image was made. Tell him it can be made tomorrow or after he raises the limit in settings.";
+      if (this.drawn >= 3) return "Refused: three images were already made for this request.";
+      this.drawn = (this.drawn || 0) + 1;
+      const made = await image(this.env, { prompt: String(input.prompt).slice(0, 4000), aspect: input.aspect, quality: input.quality });
+      const id = `img_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
+      const label = String(input.title || "").replace(/[\\/:*?"<>|\n]/g, " ").trim().slice(0, 60) || "Obrazek";
+      const file = { id, name: `${label}.${made.ext}`, mime: made.mime, size: made.bytes.length };
+      this.saveBlob(id, made.bytes);
+      this.sql.exec("INSERT INTO files (id, ts, name, mime, size, task) VALUES (?, ?, ?, ?, ?, NULL)", id, Date.now(), file.name, file.mime, file.size);
+      this.addSpend(made.usd);
+      this.post({ who: "agent", agent: "atelier", kind: "image", text: label, data: { image: { ...file, w: made.w, h: made.h }, note: `Prompt: ${String(input.prompt).slice(0, 500)}` } });
+      this.broadcast({ t: "files", files: this.rows("SELECT * FROM files ORDER BY ts DESC LIMIT 60") });
+      return `Image posted into the thread and saved as "${file.name}" (${made.w}x${made.h}, cost $${made.usd.toFixed(3)}). You cannot see it, so do not describe details you did not ask for.`;
+    }
     return `Unknown tool ${name}.`;
+  }
+
+  async showTitle(type, id) {
+    const t = await title(this.env, type, id);
+    const w = t.watch;
+    const where = w ? [w.stream.length ? `subscription: ${names(w.stream)}` : "", w.free.length ? `free: ${names(w.free)}` : "", w.rent.length ? `rent: ${names(w.rent)}` : "", !w.stream.length && !w.rent.length && w.buy.length ? `buy: ${names(w.buy)}` : ""].filter(Boolean).join("; ") : "no streaming data";
+    const length = type === "movie" ? (t.runtime ? `, ${t.runtime} min` : "") : t.seasons ? `, ${t.seasons} seasons, ${t.episodes} episodes` : "";
+    const note = `${t.name} (${t.year || "?"}), ${type === "movie" ? "film" : "series"}, TMDB ${type} id ${t.id}${t.rating ? `, rating ${t.rating}/10` : ""}${length}${t.makers.length ? `, by ${t.makers.join(", ")}` : ""}. In Poland: ${where}.`;
+    this.post({ who: "agent", agent: "valet", kind: "title", text: t.name, data: { title: t, note } });
+    return { ...t, note };
   }
 
   async weather(dayOffset = 0) {
