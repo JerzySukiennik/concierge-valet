@@ -8,3 +8,4 @@ Niepotrzebne/shots/
 Niepotrzebne/test-out/
 Niepotrzebne/**/podglad*.png
 .prod.vars
+macapp/build/

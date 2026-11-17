@@ -15,7 +15,7 @@ export const TYPES = {
       const n = +c.sats;
       let sats = "";
       for (let i = 0; i < n; i++) sats += `<g class="spin c" style="--dl:calc(var(--spd, 3.6s) * ${(-i / n).toFixed(3)})"><ellipse class="sat" cx="50" cy="16" rx="4" ry="10.5"/></g>`;
-      return svg(`<g class="f tiltg c"><path class="ring" d="M16 50 A34 13 0 0 1 84 50"/></g><g class="f planetp"><circle class="planet vox" cx="50" cy="50" r="12"/></g><g class="f tiltg c"><path class="ring" d="M16 50 A34 13 0 0 0 84 50"/><g class="squash c">${sats}</g></g>`);
+      return svg(`<g class="f tiltg c"><path class="ring" d="M16 50 A34 13 0 0 1 84 50"/></g><circle class="wave" cx="50" cy="50" r="13"/><circle class="wave w2" cx="50" cy="50" r="13"/><g class="f planetp"><circle class="planet vox" cx="50" cy="50" r="12"/></g><g class="f tiltg c"><path class="ring" d="M16 50 A34 13 0 0 0 84 50"/><g class="squash c">${sats}</g></g>`);
     },
   },
   buzka: {
@@ -74,13 +74,15 @@ function apply() {
   raf = 0;
   for (const p of watched) {
     if (!p.isConnected) { watched.delete(p); continue; }
-    let lx = 0, ly = 0;
+    let lx = 0, ly = 0, near = false;
     if (px !== null) {
       const r = p.getBoundingClientRect();
       const dx = px - (r.left + r.width / 2), dy = py - (r.top + r.height / 2), dist = Math.hypot(dx, dy) || 1, k = Math.min(1, dist / 150);
       lx = (dx / dist) * k;
       ly = (dy / dist) * k;
+      near = dist < r.width * 0.5 + 46;
     }
+    p.classList.toggle("near", near);
     p.style.setProperty("--lx", lx.toFixed(3));
     p.style.setProperty("--ly", ly.toFixed(3));
     p.style.setProperty("--sx", Math.round(lx));
@@ -108,6 +110,14 @@ export function look(puck, lx, ly) {
   puck.style.setProperty("--lx", lx);
   puck.style.setProperty("--ly", ly);
   puck.style.setProperty("--sy", Math.round(ly));
+}
+
+export function setState(puck, state) {
+  if (puck.dataset.state === state) return;
+  puck.dataset.state = state;
+  const av = puck.querySelector(".av");
+  if (!av || !av.animate || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  av.animate([{ transform: "scale(1)" }, { transform: "scale(.88)", offset: 0.22 }, { transform: "scale(1.06)", offset: 0.58 }, { transform: "scale(1)" }], { duration: 560, easing: "cubic-bezier(.3, .7, .3, 1)" });
 }
 
 export function poke(puck) {

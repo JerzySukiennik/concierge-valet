@@ -13,9 +13,10 @@
 .puck.tap:active { transform: scale(.88); }
 .av { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; display: block; transition: opacity .3s; }
 .av svg { width: 100%; height: 100%; display: block; }
-.av svg * { transform-box: fill-box; transform-origin: center; transition: transform .3s cubic-bezier(.3,1.5,.5,1), opacity .25s; }
+.av svg * { transform-box: fill-box; transform-origin: center; transition: transform var(--dur-bounce) var(--ease-bounce), opacity .25s; }
 .av svg .c { transform-box: view-box; transform-origin: 50px 50px; }
-.av .f { transition: transform .16s ease-out; }
+.av .f { transition: transform .24s cubic-bezier(.2, .8, .2, 1); }
+@media (hover: hover) { .puck.tap:hover { transform: scale(1.04); } }
 .puck[data-state="sleeping"] .av { opacity: .55; }
 .puck[data-state="asking"]::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; animation: ping 1.5s ease-out infinite; pointer-events: none; }
 .puck[data-state="error"] { box-shadow: 0 0 0 2.5px #c8402f, 0 8px 20px -12px rgba(40,35,20,.45); animation: shake .45s; }
@@ -23,6 +24,11 @@
 .puck[data-state="speaking"] .vox { animation: talk .42s ease-in-out infinite alternate; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes precess { 0%, 100% { rotate: -3.5deg; } 50% { rotate: 3.5deg; } }
+@keyframes float { 0%, 100% { translate: 0 0; } 50% { translate: 0 -1.6px; } }
+@keyframes ripple { 0% { opacity: .75; transform: scale(1); } 100% { opacity: 0; transform: scale(2.7); } }
+@keyframes glance { 0%, 68%, 100% { translate: 0 0; } 72%, 77% { translate: 3px 0; } 81%, 86% { translate: -3px 0; } }
+@keyframes pidle { 0%, 100% { translate: 0 0; } 50% { translate: 0 -2px; } }
 @keyframes spinr { from { rotate: 0deg; } to { rotate: 360deg; } }
 @keyframes blink { 0%, 91%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
 @keyframes scan { 0%, 100% { transform: translateX(-6px); } 50% { transform: translateX(6px); } }
@@ -39,9 +45,14 @@
 @keyframes ptalk { 0%, 49% { transform: scaleY(1); } 50%, 100% { transform: scaleY(.5); } }
 
 .av-orbita .ring { fill: none; stroke: var(--ink); stroke-width: 4.5; stroke-linecap: round; }
-.av-orbita .planet { fill: var(--acc); }
+.av-orbita .planet { fill: var(--acc); animation: float 5.2s ease-in-out infinite; }
+.av-orbita .wave { fill: none; stroke: var(--acc); stroke-width: 1.6; opacity: 0; }
+.puck[data-state="speaking"] .av-orbita .wave { animation: ripple 1.3s ease-out infinite; }
+.puck[data-state="speaking"] .av-orbita .wave.w2 { animation-delay: .65s; }
+.puck.near .av-orbita .planetp { scale: 1.12; }
 .av-orbita .planetp { transform: translate(calc(var(--lx) * 4px), calc(var(--ly) * 4px)); }
-.av-orbita .tiltg { transform: rotate(calc(var(--tilt, -24deg) + var(--lx) * 20deg)); }
+.av-orbita .tiltg { transform: rotate(calc(var(--tilt, -24deg) + var(--lx) * 20deg)); animation: precess 9s ease-in-out infinite; }
+.puck[data-state="thinking"] .av-orbita .tiltg { animation-duration: 3.4s; }
 .av-orbita .squash { transform: scaleY(.38); }
 .av-orbita .spin { animation: spin var(--spd, 3.6s) linear infinite; animation-delay: var(--dl, 0s); }
 .av-orbita .sat { fill: var(--ink); animation: spin var(--spd, 3.6s) linear infinite reverse; animation-delay: var(--dl, 0s); }
@@ -56,6 +67,8 @@
 
 .av-buzka .eye { fill: var(--ink); animation: blink 4.6s infinite; }
 .av-buzka .eye.r { animation-delay: .05s; }
+.av-buzka .eyes { animation: glance 7.5s ease-in-out infinite; }
+.puck.near .av-buzka .face { scale: 1.1; }
 .av-buzka .mouth { fill: none; stroke: var(--ink); stroke-width: 4.5; stroke-linecap: round; }
 .av-buzka .mouth.o { fill: var(--ink); stroke: none; }
 .av-buzka .facep { transform: translate(calc(var(--lx) * 9px), calc(var(--ly) * 8px)); }
@@ -63,6 +76,7 @@
 .puck[data-state="thinking"] .av-buzka .face { transform: translate(-7px, -9px); }
 .puck[data-state="thinking"] .av-buzka .eye.r { animation: none; transform: scaleY(.5); }
 .puck[data-state="working"] .av-buzka .eyes { animation: scan 1.3s ease-in-out infinite; }
+.puck[data-state="working"] .av-buzka .eye { animation: none; transform: scaleY(.78); }
 .puck[data-state="asking"] .av-buzka .face { transform: rotate(-10deg); }
 .puck[data-state="asking"] .av-buzka .eye.l { animation: none; transform: translateY(-4px) scale(1.18); }
 .puck[data-state="happy"] .av-buzka .eye { animation: none; transform: scaleY(.28) translateY(-8px); }
@@ -79,6 +93,7 @@
 .av-piksel .k3, .av-piksel .k4 { fill: var(--acc); }
 .av-piksel .eyes { transform: translate(calc(var(--sx) * 4px), calc(var(--sy) * 4px)); transition: none; }
 .av-piksel .mouth { transform-origin: 50% 0; }
+.av-piksel .spr { animation: pidle 3.2s steps(1) infinite; }
 .av-piksel .prog { opacity: 0; }
 .av-piksel .prog rect { fill: var(--acc); }
 .puck[data-state="thinking"] .av-piksel .eyes { transform: translate(-4px, -4px); }

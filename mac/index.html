@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Concierge Valet</title>
+<link rel="icon" type="image/png" href="../icons/icon-192.png">
+<link rel="stylesheet" href="../avatar.css">
+<link rel="stylesheet" href="mac.css">
+</head>
+<body>
+<div id="app" hidden>
+  <aside class="side">
+    <div class="lights"></div>
+    <div class="hero">
+      <div class="puck tap" id="puck" data-state="idle" role="img" aria-label="Valet"></div>
+      <h1 id="hero-name">Valet</h1>
+      <div class="hero-status" id="hero-status">Czeka</div>
+    </div>
+    <div class="rail" id="rail">
+      <i class="glide" id="glide"></i>
+      <button class="item" data-view="chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4 19.5l1.4-4.3A7.5 7.5 0 1 1 20 11.5z"/></svg>Rozmowa<kbd>⌘1</kbd></button>
+      <button class="item" data-view="tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg>Zadania<b class="count" id="count" hidden></b><kbd>⌘2</kbd></button>
+      <button class="item" data-view="files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>Pliki<kbd>⌘3</kbd></button>
+      <button class="item" data-view="memory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/></svg>Pamięć<kbd>⌘4</kbd></button>
+      <div class="label">Agenci</div>
+      <div id="agents"></div>
+    </div>
+    <div class="grow"></div>
+    <div class="spend"><span id="spend-text"></span><div class="meter"><i id="spend-bar"></i></div></div>
+    <button class="item" id="insp-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M14.5 5v14"/></svg>Panel Teraz<kbd>⌘I</kbd></button>
+    <button class="item" id="settings-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h9M19 7h1M4 12h3M13 12h7M4 17h10M20 17h0"/><circle cx="16" cy="7" r="2.4"/><circle cx="10" cy="12" r="2.4"/><circle cx="17" cy="17" r="2.4"/></svg>Ustawienia<kbd>⌘,</kbd></button>
+  </aside>
+
+  <section class="main">
+    <header class="bar">
+      <h2 id="title">Rozmowa</h2>
+    </header>
+    <div class="stage" id="stage">
+      <div class="view" id="view-chat">
+        <div class="scroll" id="chat-scroll"><div class="thread" id="thread"></div></div>
+        <button class="jump" id="jump" hidden></button>
+        <form class="composer" id="composer">
+          <div class="field">
+            <textarea id="input" rows="1" placeholder="Napisz wiadomość" aria-label="Wiadomość" autocomplete="off"></textarea>
+            <button class="send" id="send" aria-label="Wyślij" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+          </div>
+          <div class="hint">Enter wysyła, Shift i Enter robi nową linię</div>
+        </form>
+      </div>
+      <div class="view" id="view-tasks" hidden><div class="scroll"><div class="page" id="tasks"></div></div></div>
+      <div class="view" id="view-files" hidden><div class="scroll"><div class="page" id="files"></div></div></div>
+      <div class="view" id="view-memory" hidden><div class="scroll"><div class="page" id="memory"></div></div></div>
+      <div class="view" id="view-agent" hidden><div class="scroll"><div class="page" id="agent"></div></div></div>
+    </div>
+  </section>
+
+  <aside class="insp"><div class="scroll"><div class="insp-in" id="insp"></div></div></aside>
+</div>
+
+<div class="dialog-wrap" id="dialog" hidden><div class="scrim" data-close></div><div class="dialog" role="dialog" aria-modal="true" id="dialog-in"></div></div>
+
+<section id="pair" hidden>
+  <form id="pair-form">
+    <div class="puck" id="pair-puck"></div>
+    <h1>Concierge Valet</h1>
+    <p>Wklej klucz dostępu, żeby połączyć tego Maca z Twoim agentem.</p>
+    <input id="pair-key" type="password" placeholder="Klucz dostępu" aria-label="Klucz dostępu" autocomplete="off" spellcheck="false">
+    <button class="btn" type="submit">Połącz</button>
+    <div class="err" id="pair-err"></div>
+  </form>
+</section>
+
+<script type="module" src="mac.js"></script>
+</body>
+</html>
