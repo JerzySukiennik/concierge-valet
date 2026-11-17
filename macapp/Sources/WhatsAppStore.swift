@@ -20,11 +20,24 @@ enum WhatsAppStore {
         let group: Bool
         let last: Double
         let unread: Int64
+        let jid: String
+
+        var uiName: String {
+            guard name == "You", let own = WhatsAppStore.ownNumber else { return name }
+            return "+" + own
+        }
     }
 
     enum Match {
         case one(Chat)
         case many([String])
+    }
+
+    static var ownNumber: String? {
+        let file = base.appendingPathComponent("Library/Preferences/group.net.whatsapp.WhatsApp.shared.plist")
+        guard let data = try? Data(contentsOf: file), let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return nil }
+        let user = (plist["OwnJabberID"] as? String ?? "").components(separatedBy: "@").first ?? ""
+        return user.count >= 6 && user.allSatisfy(\.isNumber) ? user : nil
     }
 
     static var running: Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty }
@@ -88,10 +101,10 @@ enum WhatsAppStore {
     }
 
     private static func sessions() throws -> [Chat] {
-        try query("SELECT Z_PK AS pk, ZPARTNERNAME AS name, ZSESSIONTYPE AS type, ZLASTMESSAGEDATE AS last, ZUNREADCOUNT AS unread FROM ZWACHATSESSION WHERE ZSESSIONTYPE IN (0, 1) AND IFNULL(ZREMOVED, 0) = 0 AND ZPARTNERNAME IS NOT NULL ORDER BY ZLASTMESSAGEDATE DESC").compactMap { row in
+        try query("SELECT Z_PK AS pk, ZPARTNERNAME AS name, ZSESSIONTYPE AS type, ZLASTMESSAGEDATE AS last, ZUNREADCOUNT AS unread, ZCONTACTJID AS jid FROM ZWACHATSESSION WHERE ZSESSIONTYPE IN (0, 1) AND IFNULL(ZREMOVED, 0) = 0 AND ZPARTNERNAME IS NOT NULL ORDER BY ZLASTMESSAGEDATE DESC").compactMap { row in
             let name = clean(row["name"] as? String ?? "")
             guard !name.isEmpty, let pk = row["pk"] as? Int64 else { return nil }
-            return Chat(pk: pk, name: name, group: (row["type"] as? Int64) == 1, last: number(row["last"]), unread: max(0, row["unread"] as? Int64 ?? 0))
+            return Chat(pk: pk, name: name, group: (row["type"] as? Int64) == 1, last: number(row["last"]), unread: max(0, row["unread"] as? Int64 ?? 0), jid: row["jid"] as? String ?? "")
         }
     }
 
@@ -150,6 +163,16 @@ enum WhatsAppStore {
             messages.append(["id": row["id"] as? Int64 ?? 0, "ts": (number(row["date"]) + epoch) * 1000, "from": from, "me": me, "text": text])
         }
         return ["chat": chat.name, "group": chat.group, "messages": messages]
+    }
+
+    static func sent(chat text: String, body: String, since: Double) throws -> Double? {
+        guard case .one(let chat) = try find(text) else { return nil }
+        let start = String(body.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
+        guard !start.isEmpty else { return nil }
+        for row in try query("SELECT ZMESSAGEDATE AS date, ZTEXT AS text FROM ZWAMESSAGE WHERE ZCHATSESSION = ? AND ZISFROMME = 1 AND ZMESSAGEDATE >= ? ORDER BY ZMESSAGEDATE DESC LIMIT 20", [chat.pk, since / 1000 - epoch]) {
+            if (row["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(start) { return (number(row["date"]) + epoch) * 1000 }
+        }
+        return nil
     }
 
     static func newest() -> Int64 {

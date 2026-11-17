@@ -20,38 +20,65 @@ enum WhatsAppSender {
         if let file, !FileManager.default.fileExists(atPath: file) { throw Failure("Nie ma pliku do wysłania.") }
         let previous = NSWorkspace.shared.frontmostApplication
         let app = try await launch()
-        defer { if let previous, previous.bundleIdentifier != bundleID { front(previous) } }
+        let began = Date()
+        var marks = ["send to \(target.count) chars, dry \(dryRun)"]
+        func mark(_ name: String) { marks.append("\(name) \(Int(Date().timeIntervalSince(began) * 1000)) ms") }
+        defer {
+            mark("end")
+            note(marks)
+            if let previous, previous.bundleIdentifier != bundleID { front(previous) }
+        }
         let ax = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(ax, 2)
         guard await waitFor(10, { window(ax) != nil }) else { throw Failure("WhatsApp nie otworzył okna.") }
         front(app)
-        guard await waitFor(3, { frontmost(app) }) else { throw Failure("Nie udało się przełączyć na WhatsAppa, nic nie wysłałem.") }
-        try await pause(0.4)
-
-        if let search = menuItem(ax, menu: "File", suffix: "Search") { AXUIElementPerformAction(search, kAXPressAction as CFString) } else { try keys(app, 3, .maskCommand) }
-        try await pause(0.5)
-        try keys(app, 0, .maskCommand)
-        try keys(app, 51)
-        try await type(app, query)
-        var button: AXUIElement?
-        _ = await waitFor(5) { button = findChat(ax, target, query); return button != nil }
-        guard let button else { try? keys(app, 53); throw Failure("Nie znalazłem w WhatsAppie czatu „\(target)”.") }
-        AXUIElementPerformAction(button, kAXPressAction as CFString)
-        guard await waitFor(4, { header(ax, target) }) else {
-            NSLog("valet whatsapp: chat did not open, top of window: %@", seen(ax).joined(separator: " | "))
-            try? keys(app, 53)
-            throw Failure("Nie otworzył się czat „\(target)”, nic nie wysłałem.")
+        if !(await waitFor(1.5, { frontmost(app) })) {
+            app.unhide()
+            app.activate(options: [.activateAllWindows])
+            if !(await waitFor(1.5, { frontmost(app) })), let url = app.bundleURL {
+                let config = NSWorkspace.OpenConfiguration()
+                config.activates = true
+                _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: config)
+            }
         }
+        guard await waitFor(3, { frontmost(app) }) else { throw Failure("Nie udało się przełączyć na WhatsAppa, nic nie wysłałem.") }
+        try await pause(0.3)
+        mark("front")
+
+        if !header(ax, target) {
+            if let search = menuItem(ax, menu: "File", suffix: "Search") { AXUIElementPerformAction(search, kAXPressAction as CFString) } else { try keys(app, 3, .maskCommand) }
+            try await pause(0.4)
+            try keys(app, 0, .maskCommand)
+            try keys(app, 51)
+            try await type(app, query)
+            mark("typed")
+            var button: AXUIElement?
+            _ = await waitFor(5) { button = findChat(ax, target); return button != nil }
+            guard let button else {
+                marks += ["chat not found"] + dump(ax)
+                try? keys(app, 53)
+                throw Failure("Nie znalazłem w WhatsAppie czatu „\(target)”.")
+            }
+            mark("row")
+            AXUIElementPerformAction(button, kAXPressAction as CFString)
+            guard await waitFor(4, { header(ax, target) }) else {
+                marks += ["chat did not open"] + seen(ax)
+                try? keys(app, 53)
+                throw Failure("Nie otworzył się czat „\(target)”, nic nie wysłałem.")
+            }
+        }
+        mark("chat open")
 
         var composer: AXUIElement?
         var clicked = false
         _ = await waitFor(4) {
             if let c = focused(ax, kAXTextAreaRole) { composer = c; return true }
-            if !clicked, let c = find(ax, { string($0, kAXRoleAttribute) == kAXTextAreaRole }) { clicked = true; try? click(app, c) }
+            if !clicked, let c = find(ax, last: true, { string($0, kAXRoleAttribute) == kAXTextAreaRole }) { clicked = true; try? click(app, c) }
             return false
         }
         guard let composer else { throw Failure("Czat „\(target)” się otworzył, ale nie widzę pola wiadomości.") }
-        guard empty(ax, composer) else { throw Failure("W czacie „\(target)” jest niewysłany szkic, nie ruszam go.") }
+        guard (value(composer) ?? "").isEmpty else { throw Failure("W czacie „\(target)” jest niewysłany szkic, nie ruszam go.") }
+        mark("composer")
 
         guard let file else {
             try await paste(app, { $0.setString(text, forType: .string) }, until: { same(value(composer) ?? "", text) })
@@ -59,13 +86,17 @@ enum WhatsAppSender {
                 try? await erase(app, text)
                 throw Failure("Tekst nie wkleił się poprawnie, nic nie wysłałem.")
             }
+            mark("pasted")
             if dryRun {
                 try await erase(app, text)
-                guard await waitFor(6, { empty(ax, composer) }) else { throw Failure("Test: nie udało się wyczyścić szkicu.") }
-                return "dry run ok: \(target)"
+                guard await waitFor(6, { (value(composer) ?? "").isEmpty }) else { throw Failure("Test: nie udało się wyczyścić szkicu.") }
+                return "dry run ok"
             }
-            if !press(ax, "Send") { try keys(app, 36) }
-            guard await waitFor(6, { empty(ax, composer) }) else { throw Failure("Nacisnąłem Wyślij, ale wiadomość została w polu. Sprawdź WhatsAppa.") }
+            try keys(app, 36)
+            if !(await waitFor(4, { (value(composer) ?? "").isEmpty })) {
+                _ = press(ax, "Send")
+                guard await waitFor(6, { (value(composer) ?? "").isEmpty }) else { throw Failure("Nacisnąłem Wyślij, ale wiadomość została w polu. Sprawdź WhatsAppa.") }
+            }
             return "sent"
         }
 
@@ -242,14 +273,15 @@ enum WhatsAppSender {
         return children(list).first { clean(string($0, kAXTitleAttribute)).hasSuffix(suffix) }
     }
 
-    private static func find(_ ax: AXUIElement, _ match: (AXUIElement) -> Bool) -> AXUIElement? {
+    private static func find(_ ax: AXUIElement, last: Bool = false, _ match: (AXUIElement) -> Bool) -> AXUIElement? {
         guard let win = window(ax) else { return nil }
         var stack = [win], seen = 0
-        while let el = stack.popLast(), seen < 4000 {
+        let deadline = Date().addingTimeInterval(6)
+        while let el = stack.popLast(), seen < 4000, Date() < deadline {
             seen += 1
             if match(el) { return el }
             if string(el, kAXRoleAttribute) == kAXButtonRole { continue }
-            stack.append(contentsOf: children(el).reversed())
+            stack.append(contentsOf: last ? children(el) : children(el).reversed())
         }
         return nil
     }
@@ -261,16 +293,15 @@ enum WhatsAppSender {
     private static func matches(_ raw: String, _ target: String) -> Bool {
         let c = clean(raw).lowercased()
         if c.isEmpty { return false }
-        if label(target) == "you" { return c.hasSuffix("(you)") }
-        return label(raw) == label(target)
+        let want = label(target)
+        if want.count >= 6, want.allSatisfy(\.isNumber) { return c.filter(\.isNumber) == want }
+        return label(raw) == want
     }
 
-    private static func findChat(_ ax: AXUIElement, _ target: String, _ query: String) -> AXUIElement? {
+    private static func findChat(_ ax: AXUIElement, _ target: String) -> AXUIElement? {
         guard let top = window(ax).flatMap(frame)?.minY else { return nil }
-        let typed = clean(query).lowercased()
-        guard let field = find(ax, { string($0, kAXRoleAttribute) == kAXTextFieldRole && clean(value($0) ?? "").lowercased() == typed }).flatMap(frame) else { return nil }
         return find(ax) {
-            guard string($0, kAXRoleAttribute) == kAXButtonRole, let f = frame($0), f.minY - top >= 90, f.minY >= field.maxY, f.midX >= field.minX - 20, f.midX <= field.maxX + 20 else { return false }
+            guard string($0, kAXRoleAttribute) == kAXButtonRole, let f = frame($0), f.minY - top >= 90, f.height >= 50, f.width >= 200 else { return false }
             return buttonLabels($0).contains { matches($0, target) }
         }
     }
@@ -278,15 +309,40 @@ enum WhatsAppSender {
     private static func header(_ ax: AXUIElement, _ target: String) -> Bool {
         guard let win = window(ax), let top = frame(win)?.minY else { return false }
         var stack = [win], seen = 0
-        while let el = stack.popLast(), seen < 4000 {
+        while let el = stack.popLast(), seen < 1500 {
             seen += 1
+            let f = frame(el)
+            if let f, f.minY - top >= 90 { continue }
             if string(el, kAXRoleAttribute) == kAXButtonRole {
-                if let f = frame(el), f.minY - top < 90, buttonLabels(el).contains(where: { matches($0, target) }) { return true }
+                if f != nil, buttonLabels(el).contains(where: { matches($0, target) }) { return true }
                 continue
             }
             stack.append(contentsOf: children(el).reversed())
         }
         return false
+    }
+
+    private static func note(_ lines: [String]) {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("valet-whatsapp.txt")
+        try? lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+    }
+
+    private static func dump(_ ax: AXUIElement) -> [String] {
+        guard let win = window(ax), let origin = frame(win) else { return ["no window"] }
+        var out = ["window \(Int(origin.width))x\(Int(origin.height))"]
+        var stack = [win], visited = 0
+        while let el = stack.popLast(), visited < 5000, out.count < 70 {
+            visited += 1
+            let role = string(el, kAXRoleAttribute)
+            if role == kAXTextFieldRole || role == kAXTextAreaRole || role == kAXButtonRole || role == "AXSearchField" || role == kAXComboBoxRole, let f = frame(el) {
+                let text = ([string(el, kAXDescriptionAttribute), string(el, kAXTitleAttribute)] + children(el).prefix(2).map { string($0, kAXDescriptionAttribute) }).map(clean).filter { !$0.isEmpty }.joined(separator: " / ")
+                let val = clean(value(el) ?? "")
+                out.append("\(role.replacingOccurrences(of: "AX", with: "")) x\(Int(f.minX - origin.minX)) y\(Int(f.minY - origin.minY)) w\(Int(f.width)) h\(Int(f.height)) [\(text.prefix(46))]\(val.isEmpty ? "" : " value=\(val.prefix(24))")")
+            }
+            if role == kAXButtonRole { continue }
+            stack.append(contentsOf: children(el).reversed())
+        }
+        return out
     }
 
     private static func seen(_ ax: AXUIElement) -> [String] {
@@ -307,16 +363,16 @@ enum WhatsAppSender {
     }
 
     private static func press(_ ax: AXUIElement, _ name: String) -> Bool {
-        guard let b = find(ax, { string($0, kAXRoleAttribute) == kAXButtonRole && clean(string($0, kAXDescriptionAttribute)) == name }) else { return false }
+        guard let b = find(ax, last: true, { string($0, kAXRoleAttribute) == kAXButtonRole && clean(string($0, kAXDescriptionAttribute)) == name }) else { return false }
         return AXUIElementPerformAction(b, kAXPressAction as CFString) == .success
     }
 
     private static func empty(_ ax: AXUIElement, _ composer: AXUIElement) -> Bool {
-        (value(composer) ?? "").isEmpty && find(ax, { string($0, kAXRoleAttribute) == kAXButtonRole && clean(string($0, kAXDescriptionAttribute)) == "Voice message" }) != nil
+        (value(composer) ?? "").isEmpty && find(ax, last: true, { string($0, kAXRoleAttribute) == kAXButtonRole && clean(string($0, kAXDescriptionAttribute)) == "Voice message" }) != nil
     }
 
     private static func captionField(_ ax: AXUIElement) -> AXUIElement? {
-        find(ax) { string($0, kAXRoleAttribute) == kAXTextAreaRole && clean(string($0, kAXDescriptionAttribute)).hasPrefix("Caption") }
+        find(ax, last: true) { string($0, kAXRoleAttribute) == kAXTextAreaRole && clean(string($0, kAXDescriptionAttribute)).hasPrefix("Caption") }
     }
 
     private static func focused(_ ax: AXUIElement, _ role: String) -> AXUIElement? {

@@ -293,20 +293,41 @@ export class Valet extends DurableObject {
             return json({ ok: false, error: String(err?.message || err).slice(0, 220), wa });
           }
         }
+        const confirm = async (text, since, ms) => {
+          const c = await this.bridgeCall("wa.confirm", { chat: wa.chat, text, since }, ms);
+          if (c.sent) { wa.state = "sent"; wa.sentAt = +c.at || Date.now(); wa.error = ""; }
+          return !!c.sent;
+        };
+        if ((body.act === "check" || body.act === "send") && wa.state === "failed") {
+          try {
+            if (await confirm(wa.text, (wa.tried || row.ts) - 5000, 30000)) { save(); return json({ ok: true, wa }); }
+          } catch (err) {
+            if (body.act === "check") return json({ ok: false, wa, error: String(err?.message || err).slice(0, 220) });
+          }
+        }
+        if (body.act === "check") return json({ ok: wa.state === "sent", wa });
         if (body.act !== "send" || (wa.state !== "draft" && wa.state !== "failed")) return json({ ok: false, wa, error: "bad action" }, 400);
         const text = String(body.text ?? wa.text).trim().slice(0, 4000);
         if (!text) return json({ ok: false, wa, error: "empty" }, 400);
         wa.text = text;
         wa.state = "sending";
         wa.error = "";
+        wa.tried = Date.now();
         save();
         try {
-          await this.bridgeCall("wa.send", { chat: wa.chat, text: `${text}\n\n${wa.sign}` }, 80000);
+          await this.bridgeCall("wa.send", { chat: wa.chat, text: `${text}\n\n${wa.sign}` }, 60000);
           wa.state = "sent";
           wa.sentAt = Date.now();
         } catch (err) {
+          const why = String(err?.message || err);
           wa.state = "failed";
-          wa.error = String(err?.message || err).slice(0, 220);
+          wa.error = why.slice(0, 220);
+          if (/did not answer|not connected/.test(why)) {
+            wa.error = "Nie wiem, czy wiadomość poszła. Sprawdź WhatsAppa, zanim spróbujesz ponownie.";
+            try {
+              if (!(await confirm(text, wa.tried - 5000, 120000))) wa.error = "Mac nie potwierdził wysłania. Sprawdź WhatsAppa, zanim spróbujesz ponownie.";
+            } catch (e) {}
+          }
         }
         save();
         return json({ ok: wa.state === "sent", wa });

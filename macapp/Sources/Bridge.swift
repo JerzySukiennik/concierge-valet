@@ -122,6 +122,9 @@ final class Bridge {
             var out = try WhatsAppStore.read(chat: input["chat"] as? String ?? "", since: input["since"] as? Double ?? 0, limit: min(400, input["limit"] as? Int ?? 200))
             out["stale"] = stale
             return out
+        case "wa.confirm":
+            let at = try WhatsAppStore.sent(chat: input["chat"] as? String ?? "", body: input["text"] as? String ?? "", since: input["since"] as? Double ?? 0)
+            return ["sent": at != nil, "at": at ?? 0]
         case "wa.fresh":
             _ = await awake()
             return ["messages": try WhatsAppStore.fresh(after: 0, watch: watch, minutes: min(1440, max(1, input["minutes"] as? Double ?? 60)))]
@@ -137,7 +140,7 @@ final class Bridge {
                 hello()
             }
             defer { hello() }
-            let result = try await WhatsAppSender.send(query: chat.name, target: chat.name, text: input["text"] as? String ?? "", dryRun: input["dry"] as? Bool ?? false)
+            let result = try await WhatsAppSender.send(query: chat.name, target: chat.uiName, text: input["text"] as? String ?? "", dryRun: input["dry"] as? Bool ?? false)
             return ["result": result, "chat": chat.name]
         default:
             throw WhatsAppStore.Failure("Ten Mac nie zna polecenia \(tool).")
