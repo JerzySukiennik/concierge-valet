@@ -1,5 +1,6 @@
-// Concierge Valet for macOS: an opaque native window around the bundled desktop interface, with a loopback file server, system notifications and a Dock badge.
+// Concierge Valet for macOS: an opaque native window around the bundled desktop interface, with a loopback file server, system notifications, a Dock badge and the bridge that lets the cloud agent reach this Mac.
 import AppKit
+import ApplicationServices
 import Network
 import UserNotifications
 import WebKit
@@ -96,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
     private var web: WKWebView!
     private var server: FileServer?
     private var home: URL?
+    private var bridge: Bridge?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -155,7 +157,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         } else {
             web.loadHTMLString("<body style=\"font: 15px -apple-system; padding: 80px 40px; background: #f8f6f1; color: #1d1c19\">Nie udało się uruchomić interfejsu. Zamknij aplikację i otwórz ją ponownie.</body>", baseURL: nil)
         }
-        show()
+        if Config.env["VALET_QUIET"] == nil { show() }
+        bridge = Bridge()
+        bridge?.start()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -240,6 +244,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
             NSApp.dockTile.badgeLabel = count > 0 && !NSApp.isActive ? String(count) : nil
         case "open":
             if let text = body["url"] as? String, let url = URL(string: text), url.scheme == "https" || url.scheme == "http" { NSWorkspace.shared.open(url) }
+        case "ax":
+            AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.bridge?.hello() }
         case "copy":
             if let text = body["text"] as? String {
                 NSPasteboard.general.clearContents()

@@ -46,7 +46,7 @@ export default {
       if (url.pathname === "/api/ping") return withCors(json({ ok: true }), env, origin);
       if (!url.pathname.startsWith("/api/")) return json({ error: "not found" }, 404);
       const valet = env.VALET.get(env.VALET.idFromName("main"));
-      if (url.pathname === "/api/ws") {
+      if (url.pathname === "/api/ws" || url.pathname === "/api/bridge") {
         const [e, s] = String(url.searchParams.get("k") || "").split(".");
         if (!+e || +e < Date.now() || !same(s, await sign(env.ACCESS_TOKEN, `ws|${e}`))) return json({ error: "unauthorized" }, 401);
         return valet.fetch(req);

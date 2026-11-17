@@ -17,9 +17,18 @@ const longDay = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, weekday: "l
 const shortDate = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, day: "numeric", month: "short" });
 const weekdayShort = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, weekday: "short" });
 const dayNumber = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, day: "numeric" });
+const CHAT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4 19.5l1.4-4.3A7.5 7.5 0 1 1 20 11.5z"/><path d="M9 10.5h6M9 13.5h4"/></svg>';
 const links = new Map();
 
-export const CARD_KINDS = ["videos", "title", "titles", "image", "agenda", "event"];
+export const CARD_KINDS = ["videos", "title", "titles", "image", "agenda", "event", "wa"];
+export const SIGNS = {
+  made: (n) => `_Made by ${n}_`,
+  asystent: (n, o) => `_${n}, asystent ${o}_`,
+  napisal: (n, o) => `_Napisał ${n}, asystent AI. ${o} przeczytał i zatwierdził._`,
+  cytat: (n, o) => `> ${n} · asystent AI ${o}`,
+  tylda: (n) => `~ ${n}`,
+  kod: (n) => `\`${n}\``,
+};
 
 const plural = (n, one, few, many) => (n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? few : many);
 
@@ -277,8 +286,62 @@ function eventCard(m, ctx) {
   return card;
 }
 
+export function chatMarkup(text) {
+  const inline = (line) => esc(line)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<strong>$2</strong>")
+    .replace(/(^|[\s(])_([^_\n]+)_(?=$|[\s).,!?:;])/g, "$1<em>$2</em>")
+    .replace(/(^|[\s(])~([^~\n]+)~(?=$|[\s).,!?:;])/g, "$1<s>$2</s>");
+  return String(text || "").split("\n").map((line) => (line.startsWith("> ") ? `<span class="kx-quote">${inline(line.slice(2))}</span>` : inline(line))).join("<br>");
+}
+
+function waCard(m, ctx) {
+  const w = m.data.wa, card = el("div", "card kx kx-wa");
+  card.dataset.state = w.state;
+  card.append(el("div", "kx-head", `${CHAT}<span>WhatsApp</span><em>do: ${esc(w.chat)}${w.group ? " (grupa)" : ""}</em>`));
+  const bubble = el("div", "kx-bubble"), open = w.state === "draft" || w.state === "failed";
+  let field = null;
+  if (open) {
+    field = el("textarea", "kx-field");
+    field.value = w.text;
+    field.rows = 1;
+    field.setAttribute("aria-label", "Treść wiadomości");
+    const grow = () => { field.style.height = "auto"; field.style.height = `${field.scrollHeight}px`; };
+    field.addEventListener("input", grow);
+    requestAnimationFrame(grow);
+    bubble.append(field);
+  } else bubble.append(el("div", "kx-text", chatMarkup(w.text)));
+  bubble.append(el("div", "kx-sign", chatMarkup(w.sign)));
+  card.append(bubble);
+  const time = w.sentAt ? hm.format(w.sentAt) : "";
+  const state = { draft: "Czeka na Twoją zgodę", sending: "Wysyłam przez WhatsApp na Macu", sent: `Wysłane${time ? ` o ${time}` : ""}`, dropped: "Odrzucone, nic nie wysłano", failed: w.error || "Nie udało się wysłać" }[w.state] || "";
+  const foot = el("div", "kx-evfoot", `<span class="kx-state${w.state === "failed" ? " kx-err" : ""}">${esc(state)}</span>`);
+  const act = (label, name, ghost) => {
+    const b = el("button", `btn${ghost ? " ghost" : ""}`, label);
+    b.type = "button";
+    b.addEventListener("click", async () => {
+      if (card.classList.contains("kx-busy")) return;
+      const text = field ? field.value.trim() : w.text;
+      if (name === "send" && !text) return;
+      card.classList.add("kx-busy");
+      foot.querySelector(".kx-state").textContent = name === "send" ? "Wysyłam przez WhatsApp na Macu" : "";
+      let fresh = w;
+      try { fresh = (await ctx.post("/api/whatsapp/act", { msg: m.id, act: name, text })).wa || w; } catch (err) { fresh = { ...w, text, state: "failed", error: "Nie udało się połączyć z serwerem" }; }
+      if (!card.isConnected) return;
+      const next = waCard({ ...m, text: fresh.text, data: { ...m.data, wa: fresh } }, ctx);
+      if (card.dataset.id) next.dataset.id = card.dataset.id;
+      card.replaceWith(next);
+    });
+    foot.append(b);
+  };
+  if (open) { act("Odrzuć", "drop", true); act(w.state === "failed" ? "Spróbuj ponownie" : "Wyślij", "send", false); }
+  card.append(foot);
+  return card;
+}
+
 export function card(m, ctx) {
   try {
+    if (m.kind === "wa" && m.data?.wa) return waCard(m, ctx);
     if (m.kind === "agenda" && m.data?.agenda) return agenda(m);
     if (m.kind === "event" && m.data?.event) return eventCard(m, ctx);
     if (m.kind === "videos" && m.data?.videos?.length) return videos(m);

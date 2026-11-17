@@ -1,6 +1,6 @@
 /* Concierge Valet for Mac: desktop client for the same thread, with a sidebar, an inspector, keyboard shortcuts and a native shell bridge. */
 import { TYPES, SWATCHES, defaults, mount, watch, look, poke, setState } from "../avatar.js";
-import { CARD_KINDS, agendaNode, card as connectorCard, openImage, thumb } from "../cards.js";
+import { CARD_KINDS, SIGNS, agendaNode, card as connectorCard, openImage, thumb } from "../cards.js";
 
 const V = window.VALET || {};
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname) && !V.api;
@@ -25,7 +25,7 @@ const STATES = [["idle", "Spokój"], ["listening", "Słucha"], ["thinking", "My�
 const TITLES = { chat: "Rozmowa", tasks: "Zadania", files: "Pliki", memory: "Pamięć" };
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-const S = { token: V.token || store.get("valet-token") || "", settings: null, byId: new Map(), tasks: new Map(), files: [], sched: [], facts: [], spend: { today: 0, month: 0, limit: 6 }, status: { state: "idle", text: "" }, calendar: { on: false, calendars: [], today: [] }, view: "chat", agentKey: null, ws: null, lastDay: "", pending: [], retry: 1000, unread: 0, missed: 0 };
+const S = { token: V.token || store.get("valet-token") || "", settings: null, byId: new Map(), tasks: new Map(), files: [], sched: [], facts: [], spend: { today: 0, month: 0, limit: 6 }, status: { state: "idle", text: "" }, calendar: { on: false, calendars: [], today: [] }, mac: { on: false, host: "", ax: false, wa: false }, view: "chat", agentKey: null, ws: null, lastDay: "", pending: [], retry: 1000, unread: 0, missed: 0 };
 const puck = $("puck"), thread = $("thread"), scroller = $("chat-scroll"), input = $("input");
 let typingNode = null, statusTimer = 0, listenTimer = 0, flashTimer = 0, local = "", E = null, brush = "1", painting = false, motion = null;
 
@@ -541,6 +541,7 @@ async function sync() {
   S.facts = d.facts;
   S.spend = d.spend;
   S.calendar = d.calendar || S.calendar;
+  S.mac = d.mac || S.mac;
   S.tasks = new Map(d.tasks.map((t) => [t.id, t]));
   S.status = d.status;
   applySettings(d.settings);
@@ -564,6 +565,7 @@ async function connect() {
       if (ev.t === "msg") addMsg(ev.m);
       else if (ev.t === "edit") editMsg(ev.m);
       else if (ev.t === "calendar") { S.calendar.today = ev.today; renderInspector(); }
+      else if (ev.t === "mac") S.mac = ev.mac;
       else if (ev.t === "status") setStatus(ev);
       else if (ev.t === "task") updateTask(ev.task);
       else if (ev.t === "files") { S.files = ev.files; if (S.view === "files") renderFiles(); renderInspector(); }
@@ -684,6 +686,12 @@ function openSettings() {
     <div class="note">${S.calendar.on ? `Połączony z iCloud, kalendarze: ${S.calendar.calendars.length}. Valet czyta kalendarz, dodaje i przenosi wydarzenia, a o usunięcie zawsze pyta.` : "Niepołączony. Żeby Valet widział kalendarz, na serwerze musi być hasło aplikacji iCloud."}</div>
     ${S.calendar.on ? `<div class="f"><span>Przypomnienie</span><select id="c-nudge">${NUDGES.map(([v, n]) => `<option value="${v}"${(s.calendar?.nudge ?? 30) === v ? " selected" : ""}>${n}</option>`).join("")}</select></div>
     <div class="f"><span>Nowe wydarzenia</span><select id="c-home">${S.calendar.calendars.filter((c) => c.write).map((c) => `<option value="${esc(c.name)}"${s.calendar?.home === c.name ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>` : ""}
+    <h3>Mac i WhatsApp</h3>
+    <div class="note">${S.mac.on ? `Ten Mac jest połączony z Valetem${S.mac.wa ? " i ma dostęp do danych WhatsAppa." : ", ale nie ma jeszcze dostępu do danych WhatsAppa."}` : "Mac nie jest połączony. Valet sięga do WhatsAppa tylko wtedy, gdy ta aplikacja działa na Macu."} Valet niczego nie wysyła sam: wiadomość wychodzi dopiero po Twoim „Wyślij” na karcie, przez zwykłą aplikację WhatsApp.</div>
+    ${shell && S.mac.on && !S.mac.ax ? '<div class="actions"><button class="btn ghost" id="ax-grant">Nadaj uprawnienie do wysyłania</button><span class="note">macOS otworzy ustawienia Dostępności.</span></div>' : ""}
+    <div class="f"><span>Podpis</span><select id="w-sign">${Object.keys(SIGNS).map((k) => `<option value="${k}"${(s.whatsapp?.sign || "made") === k ? " selected" : ""}>${esc(SIGNS[k](s.agents.valet.name, "Jurka").replace(/[_`]|^> /g, ""))}</option>`).join("")}</select></div>
+    <label class="switch">Pilnuj rozmów i pytaj, czy odpisać<input type="checkbox" id="w-pro"${s.whatsapp?.proactive !== false ? " checked" : ""}></label>
+    <div class="f"><span>Pilnowane</span><input type="text" id="w-watch" value="${esc((s.whatsapp?.watch || []).join(", "))}" placeholder="Nazwy rozmów po przecinku"></div>
     <h3>Wydatki</h3>
     <div class="note">Dziś ${money(S.spend.today)} USD, w tym miesiącu ${money(S.spend.month)} USD. Po przekroczeniu dziennego limitu rozmowa schodzi na mały model, a nowe zadania w tle czekają do jutra.</div>
     <div class="f"><span>Limit dzienny (USD)</span><input type="number" id="limit" min="0.5" max="50" step="0.5" value="${s.dailyUsd}"></div>
@@ -743,6 +751,7 @@ document.addEventListener("click", async (e) => {
     $("e-note").textContent = "Zapisane.";
     return;
   }
+  if (t.closest("#ax-grant")) return native({ type: "ax" });
   if (t.closest("#notify-test")) return native({ type: "notify", title: S.settings.agents.valet.name, body: "Powiadomienia działają.", force: true });
   if (t.closest("#unpair")) return unpair();
 });
@@ -756,6 +765,7 @@ document.addEventListener("change", async (e) => {
   const t = e.target;
   if (t.dataset.model) { const d = await api("/api/settings", { models: { [t.dataset.model]: t.value } }); S.settings = d.settings; renderAgents(); }
   if (["b-daily", "b-weekly", "b-hour"].includes(t.id)) { const d = await api("/api/settings", { briefs: { daily: $("b-daily").checked, weekly: $("b-weekly").checked, hour: +$("b-hour").value } }); S.settings = d.settings; }
+  if (["w-sign", "w-pro", "w-watch"].includes(t.id)) { const d = await api("/api/settings", { whatsapp: { sign: $("w-sign").value, proactive: $("w-pro").checked, watch: $("w-watch").value.split(",").map((x) => x.trim()).filter(Boolean) } }); S.settings = d.settings; }
   if (t.id === "c-nudge" || t.id === "c-home") { const d = await api("/api/settings", { calendar: { nudge: +$("c-nudge").value, home: $("c-home").value } }); S.settings = d.settings; }
   if (t.id === "limit") { const d = await api("/api/settings", { dailyUsd: +t.value }); S.settings = d.settings; S.spend.limit = d.settings.dailyUsd; paintSpend(); }
 });

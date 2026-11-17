@@ -96,6 +96,30 @@ const CUSTOM = [
     input_schema: obj({ id: { type: "string", description: "Event id from a calendar result" } }),
   },
   {
+    name: "whatsapp_chats",
+    description: "List his WhatsApp chats through his Mac: groups and people, newest first, with unread counts. Works only while the context says the Mac is connected.",
+    strict: true,
+    input_schema: obj({ query: { type: "string", description: "Part of a chat name to filter by, or empty for the most recent chats" } }),
+  },
+  {
+    name: "whatsapp_read",
+    description: "Read recent messages of one WhatsApp chat through his Mac, with the authors' names. Use it when he asks what was written, what was assigned, when something is, or before drafting a reply.",
+    strict: true,
+    input_schema: obj({
+      chat: { type: "string", description: "Chat or group name, or a clear part of it" },
+      days: { type: "integer", description: "How many days back to read, 1 to 60" },
+    }),
+  },
+  {
+    name: "whatsapp_draft",
+    description: "Prepare a WhatsApp message for him to approve: puts a card with the text into the thread. Nothing is sent until he taps send on the card; he can edit the text there. A signature naming you is added automatically, so do not write one.",
+    strict: true,
+    input_schema: obj({
+      chat: { type: "string", description: "Chat or group name the message is for" },
+      text: { type: "string", description: "The message exactly as it should be sent, in his voice: short, natural, the way a student writes to classmates or the way he writes to that person. WhatsApp formatting only: *bold*, _italic_, simple lines" },
+    }),
+  },
+  {
     name: "youtube_search",
     description: "Search YouTube and put a card with the best videos into the thread; he taps a video to open it in the YouTube app. The result lists the same videos for you. Use it when he asks for a video, a tutorial, a channel's uploads or something to watch on YouTube.",
     strict: true,
@@ -137,6 +161,15 @@ const CUSTOM = [
     }),
   },
 ];
+
+export const VERDICT = {
+  name: "verdict",
+  description: "Report whether the assistant should look at these messages.",
+  input_schema: obj({
+    action: { type: "string", enum: ["ignore", "attention"] },
+    reason: { type: "string", description: "A few words on why, in English" },
+  }),
+};
 
 export function chatTools(model) {
   const web = model === HAIKU

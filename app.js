@@ -2,7 +2,7 @@
 import { TYPES, SWATCHES, defaults, mount, watch, look, poke, setState } from "./avatar.js";
 import { RM, anim, stagger, crossText, pressFeedback } from "./motion.js";
 import { createSheet, makePage } from "./sheet.js";
-import { CARD_KINDS, agendaNode, card as connectorCard, openImage, thumb } from "./cards.js";
+import { CARD_KINDS, SIGNS, agendaNode, card as connectorCard, openImage, thumb } from "./cards.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 const devPort = /^\d{4,5}$/.test(new URLSearchParams(location.search).get("api") || "") ? new URLSearchParams(location.search).get("api") : "8790";
@@ -79,6 +79,7 @@ const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1).replace(".", ","
 const isImage = (f) => String(f?.mime || "").startsWith("image/");
 const NUDGES = [[0, "Wyłączone"], [10, "10 min"], [15, "15 min"], [30, "30 min"], [60, "1 godz."]];
 const nudgeName = (n) => (NUDGES.find(([v]) => v === n) || NUDGES[0])[1];
+const signText = (key) => (SIGNS[key] || SIGNS.made)(S.settings?.agents?.valet?.name || "Valet", "Jurka").replace(/[_`]|^> /g, "");
 const cards = {
   link: (id) => api("/api/file/link", { id, hold: true }).then((d) => d.url),
   post: (path, body) => api(path, body),
@@ -699,6 +700,7 @@ async function sync() {
   S.facts = d.facts;
   S.spend = d.spend;
   S.calendar = d.calendar || { on: false, calendars: [], today: [] };
+  S.mac = d.mac || { on: false };
   const prevTasks = S.tasks;
   S.tasks = new Map(d.tasks.map((t) => [t.id, t]));
   S.status = d.status;
@@ -733,6 +735,7 @@ async function connect() {
       const ev = JSON.parse(e.data);
       if (ev.t === "msg") addMsg(ev.m);
       else if (ev.t === "edit") editMsg(ev.m);
+      else if (ev.t === "mac") S.mac = ev.mac;
       else if (ev.t === "status") setStatus(ev);
       else if (ev.t === "task") updateTask(ev.task);
       else if (ev.t === "files") { S.files = ev.files; renderMake(); }
@@ -1113,6 +1116,13 @@ function settingsPage() {
       <label class="row tap select-row"><span class="meta"><strong>Nowe wydarzenia</strong></span><span class="val" id="c-home-val">${esc(s.calendar?.home || S.calendar.calendars.find((c) => c.write)?.name || "")}</span>${ICON.updown}<select id="c-home" aria-label="Kalendarz dla nowych wydarzeń">${S.calendar.calendars.filter((c) => c.write).map((c) => `<option value="${esc(c.name)}"${s.calendar?.home === c.name ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select></label>` : ""}
     </div>
     <p class="foot">${S.calendar?.on ? "Valet czyta kalendarz z iCloud, dodaje i przenosi wydarzenia, a o usunięcie zawsze pyta." : "Żeby Valet widział kalendarz, na serwerze musi być hasło aplikacji iCloud."}</p>
+    <div class="sec">WhatsApp</div>
+    <div class="group">
+      <div class="row"><span class="meta"><strong>Mac</strong></span><span class="val">${S.mac?.on ? (S.mac.wa ? "Połączony" : "Połączony, bez dostępu do WhatsAppa") : "Niepołączony"}</span></div>
+      <label class="row tap select-row"><span class="meta"><strong>Podpis</strong></span><span class="val" id="w-sign-val">${esc(signText(s.whatsapp?.sign))}</span>${ICON.updown}<select id="w-sign" aria-label="Podpis pod wiadomościami">${Object.keys(SIGNS).map((k) => `<option value="${k}"${(s.whatsapp?.sign || "made") === k ? " selected" : ""}>${esc(signText(k))}</option>`).join("")}</select></label>
+      <div class="row tap" data-switch="w-pro"><span class="meta"><strong>Pilnowanie rozmów</strong><span class="sub">Valet pyta, czy odpisać</span></span><button type="button" class="switch" role="switch" id="w-pro" aria-label="Pilnowanie rozmów" aria-checked="${s.whatsapp?.proactive !== false}"><i></i></button></div>
+    </div>
+    <p class="foot">Valet czyta WhatsAppa przez aplikację na Macu i niczego nie wysyła bez Twojego „Wyślij”. Pilnowane rozmowy ustawisz w aplikacji na Macu.</p>
     <div class="sec">Wydatki</div>
     <div class="group" id="spend">
       <div class="row col meter-row"><div class="row-top"><strong>Dziś</strong><span class="val" id="spend-today"></span></div><div class="meter"><i id="meter"></i></div></div>
@@ -1423,6 +1433,7 @@ document.addEventListener("click", async (e) => {
   if (swRow) {
     const s = $(swRow.dataset.switch), on = s.getAttribute("aria-checked") !== "true";
     s.setAttribute("aria-checked", on);
+    if (swRow.dataset.switch === "w-pro") return api("/api/settings", { whatsapp: { proactive: on } }).then((d) => { S.settings = d.settings; toast("Zapisane"); }).catch(() => toast("Nie udało się zapisać"));
     return saveBriefs();
   }
   const step = t.closest("[data-step]");
@@ -1459,6 +1470,10 @@ sheetEl.addEventListener("input", (e) => {
 sheetEl.addEventListener("change", (e) => {
   const t = e.target;
   if (t.id === "b-hour") { $("b-hour-val").textContent = `${t.value}:00`; saveBriefs(); }
+  if (t.id === "w-sign") {
+    $("w-sign-val").textContent = signText(t.value);
+    api("/api/settings", { whatsapp: { sign: t.value } }).then((d) => { S.settings = d.settings; toast("Zapisane"); }).catch(() => toast("Nie udało się zapisać"));
+  }
   if (t.id === "c-nudge" || t.id === "c-home") {
     $("c-nudge-val").textContent = nudgeName(+$("c-nudge").value);
     $("c-home-val").textContent = $("c-home").value;
