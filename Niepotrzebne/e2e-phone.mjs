@@ -443,5 +443,6 @@ for (const m of modes) {
 report.seconds = Math.round((Date.now() - t0) / 1000);
 report.fails = fails;
 console.log(JSON.stringify(report, null, 1));
+setTimeout(() => process.exit(fails.length ? 1 : 0), 3000);
 await browser.close();
 process.exit(fails.length ? 1 : 0);
