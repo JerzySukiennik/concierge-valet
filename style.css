@@ -12,6 +12,7 @@
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   --serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
   --vvh: 100dvh;
+  --kx-btn-r: 999px; --kx-r: 20px;
   --sheet-top: calc(max(env(safe-area-inset-top), 20px) + 12px);
 }
 @media (prefers-color-scheme: dark) {
@@ -124,6 +125,9 @@ body.behind #app { border-radius: 12px; overflow: hidden; }
 .doc { width: 36px; height: 44px; border-radius: 7px; background: var(--accent-fill); color: var(--accent-fg); display: grid; place-items: end center; padding-bottom: 7px; flex: 0 0 auto; position: relative; clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 0 100%); }
 .doc::before { content: ""; position: absolute; top: 0; right: 0; width: 11px; height: 11px; background: rgba(255, 255, 255, .32); border-bottom-left-radius: 3px; }
 .doc span { font-size: 9.5px; font-weight: 700; letter-spacing: .04em; }
+.doc.pic { width: 44px; padding: 0; clip-path: none; overflow: hidden; background: var(--soft); border-radius: 9px; }
+.doc.pic::before { display: none; }
+.doc.pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .file .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .file strong { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sub { font-size: 12.5px; color: var(--muted); }

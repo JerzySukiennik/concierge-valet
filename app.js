@@ -2,9 +2,11 @@
 import { TYPES, SWATCHES, defaults, mount, watch, look, poke, setState } from "./avatar.js";
 import { RM, anim, stagger, crossText, pressFeedback } from "./motion.js";
 import { createSheet, makePage } from "./sheet.js";
+import { CARD_KINDS, card as connectorCard, openImage, thumb } from "./cards.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
-const API = LOCAL ? "http://127.0.0.1:8790" : "https://concierge-valet-api.kalakasanyt.workers.dev";
+const devPort = /^\d{4,5}$/.test(new URLSearchParams(location.search).get("api") || "") ? new URLSearchParams(location.search).get("api") : "8790";
+const API = LOCAL ? `http://127.0.0.1:${devPort}` : "https://concierge-valet-api.kalakasanyt.workers.dev";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
 const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html !== undefined) n.innerHTML = html; return n; };
@@ -74,6 +76,12 @@ function md(text) {
 }
 
 const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1).replace(".", ",")} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+const isImage = (f) => String(f?.mime || "").startsWith("image/");
+const cards = {
+  link: (id) => api("/api/file/link", { id, hold: true }).then((d) => d.url),
+  post: (path, body) => api(path, body),
+  open: (url) => window.open(url, "_blank", "noopener"),
+};
 const agentOf = (key) => S.settings.agents[key] || S.settings.agents.valet;
 const avKey = (a) => JSON.stringify(a);
 
@@ -138,9 +146,11 @@ function fileNode(f, full = false) {
   const card = el("button", "card file");
   card.type = "button";
   card.dataset.open = f.id;
-  card.innerHTML = `<span class="doc"><span>${esc(ext || "PLIK")}</span></span><span class="meta"><strong></strong><span class="sub"></span></span><span class="go">Otwórz</span>`;
-  card.querySelector("strong").textContent = f.name;
-  card.querySelector(".sub").textContent = [KINDS[ext] || "Plik", size(f.size), full ? shortDay.format(new Date(f.ts)) : ""].filter(Boolean).join(" · ");
+  const pic = isImage(f);
+  card.innerHTML = `<span class="doc${pic ? " pic" : ""}">${pic ? "" : `<span>${esc(ext || "PLIK")}</span>`}</span><span class="meta"><strong></strong><span class="sub"></span></span><span class="go">${pic ? "Pokaż" : "Otwórz"}</span>`;
+  if (pic) card.querySelector(".doc").append(thumb(f, cards));
+  card.querySelector("strong").textContent = pic ? f.name.replace(/\.\w+$/, "") : f.name;
+  card.querySelector(".sub").textContent = [pic ? "Obrazek" : KINDS[ext] || "Plik", size(f.size), full ? shortDay.format(new Date(f.ts)) : ""].filter(Boolean).join(" · ");
   return card;
 }
 
@@ -170,7 +180,7 @@ function taskCard(t, where) {
   return card;
 }
 
-const isBubble = (m) => m.who !== "sys" && !["task", "sky", "brief"].includes(m.kind);
+const isBubble = (m) => m.who !== "sys" && !["task", "sky", "brief", ...CARD_KINDS].includes(m.kind);
 const fromKey = (m) => (m.who === "agent" ? `a:${m.agent || "valet"}` : m.who);
 const stampNode = (ts) => el("time", "stamp", clock.format(new Date(ts)));
 
@@ -195,6 +205,10 @@ function nodes(m, join) {
     card.append(skyNode(m.data.sky));
     out.push(card);
     return out;
+  }
+  if (CARD_KINDS.includes(m.kind)) {
+    const card = connectorCard(m, cards);
+    if (card) { card.dataset.id = m.id; out.push(card); return out; }
   }
   if (m.kind === "brief") {
     const card = el("div", "card brief", `<h3>${esc(m.data?.title || "Brief")}</h3><div class="text">${md(m.text)}</div>`);
@@ -543,7 +557,7 @@ function renderMake() {
   const box = $("make");
   box.textContent = "";
   box.append(el("h2", "big", "Twórz"));
-  if (!S.files.length) { box.append(emptyState("atelier", "Tu trafią pliki od Atelier: PDF, dokumenty, arkusze, prezentacje i małe strony.")); return; }
+  if (!S.files.length) { box.append(emptyState("atelier", "Tu trafią pliki od Atelier: PDF, dokumenty, arkusze, prezentacje, małe strony i obrazki.")); return; }
   box.append(el("p", "lead", "Poproś w czacie o plik, a Atelier zrobi go w tle i odda tutaj."));
   box.append(secTitle("Pliki"));
   for (const f of S.files) box.append(fileNode(f, true));
@@ -588,6 +602,8 @@ function applySettings(settings) {
 }
 
 async function openFile(id, card) {
+  const f = S.files.find((x) => x.id === id);
+  if (isImage(f)) return openImage(f, card?.querySelector(".doc") || null, cards).catch(() => toast("Nie udało się otworzyć obrazka"));
   const win = window.open("", "_blank");
   if (card) card.classList.add("busy");
   try {

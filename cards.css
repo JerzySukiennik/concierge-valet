@@ -1,7 +1,7 @@
 /* Connector cards shared by the phone and Mac apps: YouTube videos, film card, poster shelf, generated image and its lightbox. */
 .kx { --kl: var(--card-line, var(--line, #e6e1d6)); --kh: var(--hover, var(--press, rgba(29, 28, 25, .06))); max-width: 480px; width: 100%; }
 .kx .sub { font-size: 12.5px; color: var(--muted); }
-.kx .btn { display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 9px; background: var(--accent-fill, var(--accent)); color: var(--accent-fg); font-weight: 600; font-size: 13px; text-decoration: none; white-space: nowrap; transition: transform .12s, filter .12s, background .12s; }
+.kx .btn { display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: var(--kx-btn-r, 9px); border: 0; background: var(--accent-fill, var(--accent)); color: var(--accent-fg); font-weight: 600; font-size: 13px; text-decoration: none; white-space: nowrap; transition: transform .12s, filter .12s, background .12s; }
 .kx .btn:hover { filter: brightness(1.08); }
 .kx .btn:active { transform: scale(.96); }
 .kx .btn.ghost { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 1px var(--kl); }
@@ -73,8 +73,8 @@
 .kx-tile.kx-busy .kx-cover { animation: kx-pulse .7s ease-in-out infinite alternate; }
 .kx-tile.kx-fail .kx-cover { opacity: .5; }
 
-.kx.kx-shot { --mh: 440px; max-width: none; width: min(100%, 480px, calc(var(--mh) * var(--ar, 1.5))); display: grid; gap: 6px; margin: 3px 0; }
-.kx-frame { position: relative; display: block; width: 100%; aspect-ratio: var(--ar, 1.5); border-radius: 16px; overflow: hidden; background: var(--soft); padding: 0; border: 0; cursor: zoom-in; box-shadow: 0 0 0 1px var(--kl); transition: transform .3s var(--ease-spring, ease-out), box-shadow .2s; -webkit-tap-highlight-color: transparent; }
+.kx.kx-shot { --mh: 440px; max-width: none; width: min(100%, 480px, calc(var(--mh) * var(--ar, 1.5))); display: grid; gap: 6px; margin: 3px 0; align-self: flex-start; }
+.kx-frame { position: relative; display: block; width: 100%; aspect-ratio: var(--ar, 1.5); border-radius: var(--kx-r, 16px); overflow: hidden; background: var(--soft); padding: 0; border: 0; cursor: zoom-in; box-shadow: 0 0 0 1px var(--kl); transition: transform .3s var(--ease-spring, ease-out), box-shadow .2s; -webkit-tap-highlight-color: transparent; }
 .kx-frame::before { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .4) 50%, transparent 70%) 0 0 / 220% 100%; animation: kx-shimmer 1.3s linear infinite; }
 .kx-frame.kx-ready::before { display: none; }
 .kx-frame img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transform: scale(1.04); transition: opacity .5s ease, transform .8s cubic-bezier(.2, .8, .2, 1); }
