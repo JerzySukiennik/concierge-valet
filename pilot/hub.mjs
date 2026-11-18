@@ -1,0 +1,222 @@
+/* Concierge Valet pilot hub: the meeting point on this Mac between the sessions of the Claude app (the valet-pilot mod talks to it over a private Unix socket) and the cloud agent (over the bridge socket). It lists live sessions, passes the owner's prompts into them and reports finished turns. */
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { homedir, hostname } from "node:os";
+import { basename, join } from "node:path";
+import { execFile } from "node:child_process";
+
+const HOME = process.env.VALET_PILOT_HOME || join(homedir(), ".valet-pilot");
+const API = process.env.VALET_API || "https://concierge-valet-api.kalakasanyt.workers.dev";
+const SOCK = join(HOME, "hub.sock");
+mkdirSync(HOME, { recursive: true });
+chmodSync(HOME, 0o700);
+const TOKEN = (process.env.VALET_TOKEN || (existsSync(join(HOME, "token")) ? readFileSync(join(HOME, "token"), "utf8") : "")).trim();
+if (!TOKEN) { process.stderr.write("valet pilot: no access token (VALET_TOKEN or ~/.valet-pilot/token)\n"); process.exit(1); }
+
+const sessions = new Map(), pending = new Map();
+let bridge = null, pinger = null, retry = 2000, seq = 0, listed = [], told = -1;
+const log = (...a) => process.stdout.write(`${new Date().toISOString().slice(11, 19)} ${a.join(" ")}\n`);
+const fold = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/ł/g, "l").trim();
+const clip = (s, n) => { const t = String(s || "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+const label = (s) => s.title || "bez tytułu";
+
+const idleSeconds = () => new Promise((resolve) => {
+  execFile("/usr/sbin/ioreg", ["-c", "IOHIDSystem", "-d", "4"], { timeout: 4000, maxBuffer: 8e6 }, (err, out) => {
+    const m = /"HIDIdleTime" = (\d+)/.exec(out || "");
+    resolve(m ? Math.round(+m[1] / 1e9) : -1);
+  });
+});
+
+function touch(id, patch = {}) {
+  let s = sessions.get(id);
+  if (!s) {
+    s = { id, cwd: "", root: "", project: "", model: "", title: "", state: "idle", since: Date.now(), seen: Date.now(), last: "", queue: [], waiter: null, remote: false };
+    sessions.set(id, s);
+    log("session", id.slice(0, 8), "joined");
+  }
+  for (const [k, v] of Object.entries(patch)) if (v !== undefined && v !== null && v !== "") s[k] = v;
+  if (s.root || s.cwd) s.project = basename(s.root || s.cwd);
+  s.seen = Date.now();
+  return s;
+}
+
+function prune() {
+  for (const [id, s] of sessions) {
+    if (Date.now() - s.seen < 75000) continue;
+    sessions.delete(id);
+    log("session", id.slice(0, 8), "gone");
+  }
+  hello();
+}
+
+function find(query) {
+  prune();
+  const text = String(query || "").trim(), all = [...sessions.values()];
+  if (sessions.has(text)) return { one: sessions.get(text) };
+  if (/^\d{1,2}$/.test(text) && listed[+text - 1] && sessions.has(listed[+text - 1])) return { one: sessions.get(listed[+text - 1]) };
+  const want = fold(text);
+  if (!want) return all.length === 1 ? { one: all[0] } : { many: all };
+  const exact = all.filter((s) => fold(s.title) === want || fold(s.project) === want);
+  const hit = exact.length ? exact : all.filter((s) => fold(s.title).includes(want) || fold(s.project).includes(want));
+  return hit.length === 1 ? { one: hit[0] } : { many: hit.length ? hit : all };
+}
+
+function command(s, cmd, ms = 15000) {
+  const id = String(++seq);
+  const result = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { pending.delete(id); s.queue = s.queue.filter((c) => c.id !== id); reject(new Error("Sesja nie odpowiedziała na czas.")); }, ms);
+    pending.set(id, { resolve, reject, timer });
+  });
+  const full = { ...cmd, id };
+  if (s.waiter) { const give = s.waiter; s.waiter = null; give(full); } else s.queue.push(full);
+  return result;
+}
+
+async function run(tool, input) {
+  if (tool === "code.sessions") {
+    prune();
+    const all = [...sessions.values()].sort((a, b) => b.since - a.since);
+    listed = all.map((s) => s.id);
+    return { sessions: all.map((s, i) => ({ n: i + 1, title: label(s), project: s.project || "?", state: s.state, minutes: Math.max(0, Math.round((Date.now() - s.since) / 60000)), last: clip(s.last, 320) })) };
+  }
+  const hit = find(input.session);
+  if (!hit.one) {
+    if (!hit.many.length) throw new Error("W apce Claude na Macu nie ma teraz otwartej sesji.");
+    return { candidates: hit.many.map((s) => `"${label(s)}" (${s.project || "?"})`).slice(0, 8) };
+  }
+  const s = hit.one, about = { title: label(s), project: s.project || "?" };
+  if (tool === "code.read") {
+    const d = await command(s, { kind: "read", count: Math.max(2, Math.min(30, +input.count || 8)) });
+    return { ...about, state: s.state, messages: d.messages || [] };
+  }
+  if (tool === "code.prompt") {
+    const text = String(input.text || "").trim();
+    if (!text) throw new Error("Pusty prompt.");
+    const state = s.state;
+    await command(s, { kind: "prompt", text });
+    s.remote = true;
+    log("prompt", s.id.slice(0, 8), `${text.length} chars`);
+    return { ...about, state };
+  }
+  throw new Error(`Hub nie zna polecenia ${tool}.`);
+}
+
+const send = (body) => { try { if (bridge?.readyState === 1) bridge.send(JSON.stringify(body)); } catch (err) {} };
+function hello(force = false) {
+  if (!force && told === sessions.size) return;
+  told = sessions.size;
+  send({ t: "hello", host: hostname().replace(/\.local$/, ""), sessions: sessions.size });
+}
+
+async function event(body) {
+  const s = touch(String(body.session), { cwd: body.cwd, root: body.root, model: body.model, title: clip(body.title, 80) });
+  if (body.kind === "hello") hello();
+  else if (body.kind === "start") {
+    s.state = "working";
+    s.since = Date.now();
+    if (!s.title && body.prompt) s.title = clip(body.prompt, 60);
+  } else if (body.kind === "done") {
+    const remote = s.remote;
+    s.state = "idle";
+    s.since = Date.now();
+    s.remote = false;
+    if (body.answer) s.last = String(body.answer).slice(0, 4000);
+    send({ t: "event", kind: "code", what: "done", title: label(s), project: s.project || "?", reason: String(body.reason || "answer"), durationMs: +body.durationMs || 0, answer: s.last, remote, idle: await idleSeconds() });
+  } else if (body.kind === "bye") {
+    sessions.delete(s.id);
+    log("session", s.id.slice(0, 8), "left");
+    hello();
+  }
+}
+
+const read = (req) => new Promise((resolve) => {
+  let raw = "";
+  req.on("data", (c) => { raw += c; if (raw.length > 400000) req.destroy(); });
+  req.on("end", () => { try { resolve(JSON.parse(raw || "{}")); } catch (err) { resolve({}); } });
+  req.on("error", () => resolve({}));
+});
+
+const server = createServer(async (req, res) => {
+  const url = new URL(req.url, "http://hub");
+  const reply = (body, status = 200) => { if (res.writableEnded) return; res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
+  try {
+    if (req.method === "POST" && url.pathname === "/event") {
+      const body = await read(req);
+      if (!body.session) return reply({ error: "session" }, 400);
+      await event(body);
+      return reply({ ok: true });
+    }
+    if (req.method === "POST" && url.pathname === "/result") {
+      const body = await read(req), call = pending.get(String(body.id));
+      if (call) {
+        pending.delete(String(body.id));
+        clearTimeout(call.timer);
+        if (body.ok) call.resolve(body.data || {}); else call.reject(new Error(String(body.error || "Sesja zgłosiła błąd.").slice(0, 300)));
+      }
+      return reply({ ok: true });
+    }
+    if (req.method === "GET" && url.pathname === "/next") {
+      const id = url.searchParams.get("session");
+      if (!id) return reply({ error: "session" }, 400);
+      const s = touch(id);
+      if (s.queue.length) return reply({ cmd: s.queue.shift() });
+      if (s.waiter) s.waiter(null);
+      const timer = setTimeout(() => { if (s.waiter === give) s.waiter = null; reply({}); }, 20000);
+      const give = (cmd) => { clearTimeout(timer); s.seen = Date.now(); reply(cmd ? { cmd } : {}); };
+      s.waiter = give;
+      req.on("close", () => { if (s.waiter === give) { s.waiter = null; clearTimeout(timer); } });
+      return;
+    }
+    reply({ error: "not found" }, 404);
+  } catch (err) {
+    reply({ error: String(err?.message || err).slice(0, 200) }, 500);
+  }
+});
+
+async function connect() {
+  try {
+    const res = await fetch(`${API}/api/ticket`, { method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: "{}" });
+    if (!res.ok) throw new Error(`ticket ${res.status}`);
+    const { ticket } = await res.json();
+    const ws = new WebSocket(`${API.replace(/^http/, "ws")}/api/bridge?k=${ticket}&role=code`);
+    bridge = ws;
+    ws.addEventListener("open", () => {
+      retry = 2000;
+      log("bridge open");
+      hello(true);
+      clearInterval(pinger);
+      pinger = setInterval(() => { try { ws.send("ping"); } catch (err) {} }, 25000);
+    });
+    ws.addEventListener("message", async (e) => {
+      if (e.data === "pong" || typeof e.data !== "string") return;
+      let m;
+      try { m = JSON.parse(e.data); } catch (err) { return; }
+      if (m.t !== "call" || !m.id) return;
+      try {
+        send({ t: "result", id: m.id, ok: true, data: await run(m.tool, m.input || {}) });
+      } catch (err) {
+        send({ t: "result", id: m.id, ok: false, error: String(err?.message || err).slice(0, 300) });
+      }
+    });
+    const again = () => {
+      if (bridge !== ws) return;
+      bridge = null;
+      clearInterval(pinger);
+      const wait = retry;
+      retry = Math.min(60000, retry * 2);
+      setTimeout(connect, wait);
+    };
+    ws.addEventListener("close", again);
+    ws.addEventListener("error", () => { try { ws.close(); } catch (err) {} });
+  } catch (err) {
+    log("bridge failed", String(err?.message || err));
+    const wait = retry;
+    retry = Math.min(60000, retry * 2);
+    setTimeout(connect, wait);
+  }
+}
+
+rmSync(SOCK, { force: true });
+server.listen(SOCK, () => { chmodSync(SOCK, 0o600); log("hub listening"); });
+setInterval(prune, 30000);
+connect();

@@ -37,7 +37,7 @@ const CUSTOM = [
       text: { type: "string", description: "What to tell him when it fires, in Polish, phrased as the reminder itself" },
     }),
   },
-  { name: "list_schedule", description: "List reminders and recurring briefs that are set.", strict: true, input_schema: obj({}) },
+  { name: "list_schedule", description: "List reminders and recurring briefs that are set.", input_schema: obj({}) },
   {
     name: "cancel_schedule",
     description: "Delete a reminder by its number from list_schedule.",
@@ -122,14 +122,31 @@ const CUSTOM = [
   {
     name: "whatsapp_send",
     description: "Send the WhatsApp messages that are waiting for his approval. Call it only when his new message clearly tells you to send (tak, wyślij, ok and the like) and the card was already in the thread before that message. It refuses in every other case.",
-    strict: true,
     input_schema: obj({}),
   },
   {
     name: "whatsapp_discard",
     description: "Throw away the WhatsApp messages that are waiting for his approval, when he says not to send them.",
-    strict: true,
     input_schema: obj({}),
+  },
+  { name: "code_sessions", description: "List the Claude Code sessions that are open right now in the Claude app on his Mac: title, project, whether each is working or idle, and its last message. Use it before you read or prompt a session, and when he asks what Claude is doing.", input_schema: obj({}) },
+  {
+    name: "code_read",
+    description: "Read the latest messages of one Claude Code session on his Mac: his prompts and Claude's answers. Use it when he asks what a session did, what it is asking or where it got stuck, and before you pass on an instruction that depends on what the session said.",
+    strict: true,
+    input_schema: obj({
+      session: { type: "string", description: "Session number from code_sessions, or a clear part of its title or project" },
+      count: { type: "integer", description: "How many latest messages to read, 2 to 30" },
+    }),
+  },
+  {
+    name: "code_send",
+    description: "Pass a prompt into one Claude Code session in the Claude app on his Mac, as if he had typed it there. The session starts working on it at once, or right after its current turn. Only for what he asked you to tell the session in this turn.",
+    strict: true,
+    input_schema: obj({
+      session: { type: "string", description: "Session number from code_sessions, or a clear part of its title or project" },
+      text: { type: "string", description: "The full prompt for Claude Code, in Polish unless he wrote it in another language: his instruction made precise, with the details he gave you. No greeting and no mention of Valet." },
+    }),
   },
   {
     name: "youtube_search",

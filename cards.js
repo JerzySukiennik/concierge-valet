@@ -20,7 +20,7 @@ const dayNumber = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, day: "num
 const CHAT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4 19.5l1.4-4.3A7.5 7.5 0 1 1 20 11.5z"/><path d="M9 10.5h6M9 13.5h4"/></svg>';
 const links = new Map();
 
-export const CARD_KINDS = ["videos", "title", "titles", "image", "agenda", "event", "wa"];
+export const CARD_KINDS = ["videos", "title", "titles", "image", "agenda", "event", "wa", "code"];
 export const SIGNS = {
   marka: () => "`Made by Concierge Valet`",
   made: (n) => `_Made by ${n}_`,
@@ -352,9 +352,22 @@ function waCard(m, ctx) {
   return card;
 }
 
+const TERM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="3.5"/><path d="M8 10l2.6 2L8 14M13 14.5h3"/></svg>';
+
+function codeCard(m) {
+  const c = m.data.code, card = el("div", "card kx kx-wa kx-code");
+  card.append(el("div", "kx-head", `${TERM}<span>Claude Code</span><em>do sesji: ${esc(c.title)}</em>`));
+  const bubble = el("div", "kx-bubble");
+  bubble.append(el("div", "kx-text", chatMarkup(m.text)));
+  card.append(bubble);
+  card.append(el("div", "kx-evfoot", `<span class="kx-state">${esc(c.state === "working" ? "Przekazane, ruszy po bieżącej turze" : "Przekazane, sesja pracuje")} · ${esc(c.project)}</span>`));
+  return card;
+}
+
 export function card(m, ctx) {
   try {
     if (m.kind === "wa" && m.data?.wa) return waCard(m, ctx);
+    if (m.kind === "code" && m.data?.code) return codeCard(m);
     if (m.kind === "agenda" && m.data?.agenda) return agenda(m);
     if (m.kind === "event" && m.data?.event) return eventCard(m, ctx);
     if (m.kind === "videos" && m.data?.videos?.length) return videos(m);
