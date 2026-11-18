@@ -20,7 +20,7 @@ const dayNumber = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, day: "num
 const CHAT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4 19.5l1.4-4.3A7.5 7.5 0 1 1 20 11.5z"/><path d="M9 10.5h6M9 13.5h4"/></svg>';
 const links = new Map();
 
-export const CARD_KINDS = ["videos", "title", "titles", "image", "agenda", "event", "wa", "code"];
+export const CARD_KINDS = ["videos", "title", "titles", "image", "agenda", "event", "wa", "code", "ask"];
 export const SIGNS = {
   marka: () => "`Made by Concierge Valet`",
   made: (n) => `_Made by ${n}_`,
@@ -356,11 +356,81 @@ const TERM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
 
 function codeCard(m) {
   const c = m.data.code, card = el("div", "card kx kx-wa kx-code");
+  card.dataset.state = c.state;
   card.append(el("div", "kx-head", `${TERM}<span>Claude Code</span><em>do sesji: ${esc(c.title)}</em>`));
   const bubble = el("div", "kx-bubble");
   bubble.append(el("div", "kx-text", chatMarkup(m.text)));
   card.append(bubble);
-  card.append(el("div", "kx-evfoot", `<span class="kx-state">${esc(c.state === "working" ? "Przekazane, ruszy po bieżącej turze" : "Przekazane, sesja pracuje")} · ${esc(c.project)}</span>`));
+  const state = { queued: "Przekazane, ruszy po bieżącej turze", working: "Przekazane, ruszy po bieżącej turze", running: "Sesja pracuje", done: `Sesja skończyła${c.minutes ? ` po ${c.minutes} min` : ""}` }[c.state] || "Przekazane";
+  card.append(el("div", "kx-evfoot", `${c.state === "running" ? '<i class="kx-dot" aria-hidden="true"></i>' : ""}<span class="kx-state">${esc(state)} · ${esc(c.project)}</span>`));
+  return card;
+}
+
+const TOOL_NAMES = { Bash: "polecenie w terminalu", Edit: "zmianę pliku", Write: "zapis pliku", NotebookEdit: "zmianę notatnika", WebFetch: "pobranie strony", WebSearch: "szukanie w sieci", Read: "odczyt pliku" };
+
+function askCard(m, ctx) {
+  const a = m.data.ask, card = el("div", "card kx kx-wa kx-ask"), question = a.kind === "question", open = a.state === "open";
+  card.dataset.state = a.state;
+  card.append(el("div", "kx-head", `${TERM}<span>Claude Code</span><em>sesja: ${esc(a.title)}</em>`));
+  const bubble = el("div", "kx-bubble"), picked = new Map();
+  let submit = null;
+  const finish = async (body) => {
+    if (card.classList.contains("kx-busy")) return;
+    card.classList.add("kx-busy");
+    let fresh = a;
+    try { fresh = (await ctx.post("/api/code/act", { msg: m.id, ...body })).ask || a; } catch (err) { fresh = { ...a, state: "gone", why: "Nie udało się połączyć z serwerem" }; }
+    if (!card.isConnected) return;
+    const next = askCard({ ...m, data: { ...m.data, ask: fresh } }, ctx);
+    if (card.dataset.id) next.dataset.id = card.dataset.id;
+    card.replaceWith(next);
+  };
+  if (question) {
+    const alone = a.questions.length === 1 && !a.questions[0].multi;
+    for (const q of a.questions) {
+      const box = el("div", "kx-q", `${q.header ? `<b>${esc(q.header)}</b>` : ""}<span>${esc(q.question)}</span>`);
+      const list = el("div", "kx-opts");
+      for (const o of q.options) {
+        const b = el("button", "kx-opt", `<strong>${esc(o.label)}</strong>${o.description ? `<small>${esc(o.description)}</small>` : ""}`);
+        b.type = "button";
+        b.disabled = !open;
+        b.addEventListener("click", () => {
+          const now = new Set(picked.get(q.question) || []);
+          if (q.multi) { if (now.has(o.label)) now.delete(o.label); else now.add(o.label); } else { now.clear(); now.add(o.label); }
+          picked.set(q.question, now);
+          for (const other of list.children) other.classList.toggle("on", now.has(other.firstChild.textContent));
+          if (alone) return finish({ act: "answer", answers: { [q.question]: o.label } });
+          if (submit) submit.disabled = !a.questions.every((x) => picked.get(x.question)?.size);
+        });
+        list.append(b);
+      }
+      box.append(list);
+      bubble.append(box);
+    }
+    if (open && !alone) {
+      submit = el("button", "btn", "Wyślij odpowiedź");
+      submit.type = "button";
+      submit.disabled = true;
+      submit.addEventListener("click", () => finish({ act: "answer", answers: Object.fromEntries(a.questions.map((q) => [q.question, [...(picked.get(q.question) || [])].join(", ")])) }));
+    }
+  } else {
+    bubble.append(el("div", "kx-lead", `Prosi o zgodę na ${esc(TOOL_NAMES[a.tool] || a.tool)}${a.agent ? " (pomocniczy agent)" : ""}`));
+    bubble.append(el("pre", "kx-cmd", esc(a.summary)));
+  }
+  card.append(bubble);
+  const time = a.at ? hm.format(a.at) : "";
+  const gone = a.why === "local" ? "Rozstrzygnięte przy Macu" : a.why === "aborted" ? "Nieaktualne, sesja poszła dalej" : a.why || "Nieaktualne";
+  const state = { open: question ? "Wybierz albo odpisz własnymi słowami" : "Stuknij albo napisz „pozwól”", allowed: `Pozwolono${time ? ` o ${time}` : ""}`, denied: `Odmówiono${time ? ` o ${time}` : ""}`, answered: `Odpowiedź: ${a.reply || "wysłana"}`, gone }[a.state] || "";
+  const foot = el("div", "kx-evfoot", `<span class="kx-state">${esc(state)} · ${esc(a.project)}</span>`);
+  if (open && !question) {
+    for (const [label, act, ghost] of [["Odmów", "deny", true], ["Pozwól", "allow", false]]) {
+      const b = el("button", `btn${ghost ? " ghost" : ""}`, label);
+      b.type = "button";
+      b.addEventListener("click", () => finish({ act }));
+      foot.append(b);
+    }
+  }
+  if (submit) foot.append(submit);
+  card.append(foot);
   return card;
 }
 
@@ -368,6 +438,7 @@ export function card(m, ctx) {
   try {
     if (m.kind === "wa" && m.data?.wa) return waCard(m, ctx);
     if (m.kind === "code" && m.data?.code) return codeCard(m);
+    if (m.kind === "ask" && m.data?.ask) return askCard(m, ctx);
     if (m.kind === "agenda" && m.data?.agenda) return agenda(m);
     if (m.kind === "event" && m.data?.event) return eventCard(m, ctx);
     if (m.kind === "videos" && m.data?.videos?.length) return videos(m);

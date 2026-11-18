@@ -13,7 +13,7 @@ chmodSync(HOME, 0o700);
 const TOKEN = (process.env.VALET_TOKEN || (existsSync(join(HOME, "token")) ? readFileSync(join(HOME, "token"), "utf8") : "")).trim();
 if (!TOKEN) { process.stderr.write("valet pilot: no access token (VALET_TOKEN or ~/.valet-pilot/token)\n"); process.exit(1); }
 
-const sessions = new Map(), pending = new Map();
+const sessions = new Map(), pending = new Map(), asks = new Map();
 let bridge = null, pinger = null, retry = 2000, seq = 0, listed = [], told = -1;
 const log = (...a) => process.stdout.write(`${new Date().toISOString().slice(11, 19)} ${a.join(" ")}\n`);
 const fold = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/ł/g, "l").trim();
@@ -72,7 +72,24 @@ function command(s, cmd, ms = 15000) {
   return result;
 }
 
+function settle(ask, answer) {
+  ask.answer = answer;
+  if (ask.waiter) {
+    const give = ask.waiter;
+    ask.waiter = null;
+    asks.delete(ask.id);
+    give(answer);
+  } else setTimeout(() => asks.delete(ask.id), 60000);
+}
+
 async function run(tool, input) {
+  if (tool === "code.answer") {
+    const ask = asks.get(String(input.id));
+    if (!ask || ask.answer) throw new Error("To pytanie jest już nieaktualne: sesja dostała odpowiedź na Macu albo została przerwana.");
+    settle(ask, { decision: String(input.decision || ""), answers: input.answers || {}, text: String(input.text || "").slice(0, 2000) });
+    log("answer", ask.session.slice(0, 8), ask.kind, String(input.decision || ""));
+    return { ok: true };
+  }
   if (tool === "code.sessions") {
     prune();
     const all = [...sessions.values()].sort((a, b) => b.since - a.since);
@@ -84,7 +101,7 @@ async function run(tool, input) {
     if (!hit.many.length) throw new Error("W apce Claude na Macu nie ma teraz otwartej sesji.");
     return { candidates: hit.many.map((s) => `"${label(s)}" (${s.project || "?"})`).slice(0, 8) };
   }
-  const s = hit.one, about = { title: label(s), project: s.project || "?" };
+  const s = hit.one, about = { sid: s.id, title: label(s), project: s.project || "?" };
   if (tool === "code.read") {
     const d = await command(s, { kind: "read", count: Math.max(2, Math.min(30, +input.count || 8)) });
     return { ...about, state: s.state, messages: d.messages || [] };
@@ -117,6 +134,7 @@ async function event(body) {
     s.remote = s.asked;
     s.asked = false;
     if (!s.title && body.prompt) s.title = clip(body.prompt, 60);
+    if (s.remote) send({ t: "event", kind: "code", what: "start", sid: s.id, title: label(s), project: s.project || "?" });
   } else if (body.kind === "done") {
     const remote = s.remote;
     s.state = "idle";
@@ -125,7 +143,7 @@ async function event(body) {
     if (body.answer) s.last = String(body.answer).slice(0, 4000);
     const idle = await idleSeconds();
     log("done", s.id.slice(0, 8), body.reason || "answer", remote ? "remote" : "local", `idle ${idle}s`);
-    send({ t: "event", kind: "code", what: "done", title: label(s), project: s.project || "?", reason: String(body.reason || "answer"), durationMs: +body.durationMs || 0, answer: s.last, remote, idle });
+    send({ t: "event", kind: "code", what: "done", sid: s.id, title: label(s), project: s.project || "?", reason: String(body.reason || "answer"), durationMs: +body.durationMs || 0, answer: s.last, remote, idle });
   } else if (body.kind === "bye") {
     sessions.delete(s.id);
     log("session", s.id.slice(0, 8), "left");
@@ -156,6 +174,36 @@ const server = createServer(async (req, res) => {
         pending.delete(String(body.id));
         clearTimeout(call.timer);
         if (body.ok) call.resolve(body.data || {}); else call.reject(new Error(String(body.error || "Sesja zgłosiła błąd.").slice(0, 300)));
+      }
+      return reply({ ok: true });
+    }
+    if (req.method === "GET" && url.pathname === "/presence") return reply({ idle: await idleSeconds() });
+    if (req.method === "POST" && url.pathname === "/ask") {
+      const body = await read(req), id = String(body.id || "");
+      if (!body.session || !id) return reply({ error: "ask" }, 400);
+      const s = touch(String(body.session));
+      const ask = { id, session: s.id, kind: body.kind === "question" ? "question" : "permission", answer: null, waiter: null };
+      asks.set(id, ask);
+      log("ask", s.id.slice(0, 8), ask.kind, clip(body.tool, 40));
+      send({ t: "event", kind: "code", what: "ask", sid: s.id, title: label(s), project: s.project || "?", ask: { id, kind: ask.kind, tool: clip(body.tool, 60), summary: String(body.summary || "").slice(0, 1500), reason: clip(body.reason, 300), questions: Array.isArray(body.questions) ? body.questions.slice(0, 4) : [], agent: !!body.agent } });
+      return reply({ ok: bridge?.readyState === 1 });
+    }
+    if (req.method === "GET" && url.pathname === "/ask/wait") {
+      const ask = asks.get(String(url.searchParams.get("id")));
+      if (!ask) return reply({ gone: true });
+      if (ask.answer) { asks.delete(ask.id); return reply({ answer: ask.answer }); }
+      const timer = setTimeout(() => { if (ask.waiter === give) ask.waiter = null; reply({}); }, 20000);
+      const give = (answer) => { clearTimeout(timer); reply({ answer }); };
+      ask.waiter = give;
+      req.on("close", () => { if (ask.waiter === give) { ask.waiter = null; clearTimeout(timer); } });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/ask/end") {
+      const body = await read(req), ask = asks.get(String(body.id));
+      if (ask && !ask.answer) {
+        asks.delete(ask.id);
+        log("ask ended", ask.session.slice(0, 8), clip(body.why, 20));
+        send({ t: "event", kind: "code", what: "ask-end", id: ask.id, why: body.why === "local" ? "local" : "aborted" });
       }
       return reply({ ok: true });
     }

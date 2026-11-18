@@ -149,6 +149,15 @@ const CUSTOM = [
     }),
   },
   {
+    name: "code_answer",
+    description: "Answer the Claude Code session that stopped in the middle of its work and waits for him: give or refuse a permission it asked for, or pass his answer to its question. Only when the thread shows such a waiting card and his new message decides it.",
+    input_schema: obj({
+      decision: { type: "string", enum: ["allow", "deny", "answer"], description: "allow or deny for a permission request, answer for a question" },
+      text: { type: "string", description: "For deny: his reason, if he gave one. For answer: his answer in his own words when it does not match one of the options. Empty otherwise." },
+      answers: { type: "array", description: "For answer: one entry per question the session asked, when he picked options. Empty otherwise.", items: obj({ question: { type: "string", description: "The question text exactly as the session asked it" }, answer: { type: "string", description: "The label of the option he chose, or several labels joined with a comma, or his own short answer" } }) },
+    }),
+  },
+  {
     name: "youtube_search",
     description: "Search YouTube and put a card with the best videos into the thread; he taps a video to open it in the YouTube app. The result lists the same videos for you. Use it when he asks for a video, a tutorial, a channel's uploads or something to watch on YouTube.",
     strict: true,

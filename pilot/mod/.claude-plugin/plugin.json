@@ -1,7 +1,7 @@
 {
   "name": "valet-pilot",
-  "version": "0.2.0",
-  "description": "Links Claude app sessions to the Concierge Valet hub on this Mac: reports finished turns and takes prompts the owner sends from his Valet thread.",
+  "version": "0.3.0",
+  "description": "Links Claude app sessions to the Concierge Valet hub on this Mac: reports finished turns, takes prompts sent from the Valet thread, and passes questions and permission requests to the owner while he is away.",
   "author": {
     "name": "Jurek"
   }

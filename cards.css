@@ -141,6 +141,20 @@
 .kx-wa[data-state="dropped"] .kx-text { text-decoration: line-through; }
 .kx-wa.kx-busy { opacity: .7; pointer-events: none; }
 .kx-state.kx-err { color: var(--err, #a5382a); }
+.kx-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; animation: kx-beat 1.6s ease-in-out infinite alternate; }
+.kx-lead { font-size: 13.5px; color: var(--muted); }
+.kx-cmd { margin: 0; font: 12.5px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 148px; overflow: auto; background: var(--press); border-radius: 10px; padding: 8px 10px; -webkit-user-select: text; user-select: text; }
+.kx-q { display: grid; gap: 8px; }
+.kx-q + .kx-q { padding-top: 10px; border-top: 1px solid var(--kl); }
+.kx-q > b { font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.kx-opts { display: grid; gap: 6px; }
+.kx-opt { display: grid; gap: 2px; text-align: left; font: inherit; color: inherit; background: var(--card); border: 0; box-shadow: inset 0 0 0 1px var(--kl); border-radius: 12px; padding: 9px 12px; cursor: pointer; transition: box-shadow .16s ease, background-color .16s ease, transform .12s ease; }
+.kx-opt strong { font-weight: 600; font-size: 14.5px; }
+.kx-opt small { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.kx-opt:active { transform: scale(.985); }
+.kx-opt.on { box-shadow: inset 0 0 0 1.5px var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--card)); }
+.kx-opt:disabled { cursor: default; opacity: .6; }
+.kx-ask[data-state="gone"] .kx-bubble { opacity: .55; }
 
 .kx-light { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(12, 11, 9, .88); cursor: zoom-out; animation: kx-fade .22s ease-out both; }
 .kx-light.out { animation: kx-fade-out .28s ease-in both; }
@@ -153,6 +167,7 @@
 
 @keyframes kx-fade { from { background-color: rgba(12, 11, 9, 0); } }
 @keyframes kx-fade-out { to { background-color: rgba(12, 11, 9, 0); } }
+@keyframes kx-beat { to { opacity: .35; transform: scale(.82); } }
 @keyframes kx-pulse { to { opacity: .45; transform: scale(.97); } }
 @keyframes kx-shimmer { from { background-position: 120% 0; } to { background-position: -100% 0; } }
-@media (prefers-reduced-motion: reduce) { .kx-frame::before { animation: none; } .kx-frame img { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .kx-dot { animation: none; } .kx-opt { transition: none; } .kx-frame::before { animation: none; } .kx-frame img { transition: none; } }
