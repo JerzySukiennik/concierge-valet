@@ -374,4 +374,5 @@ async function connect() {
 rmSync(SOCK, { force: true });
 server.listen(SOCK, () => { chmodSync(SOCK, 0o600); log("hub listening"); });
 setInterval(prune, 30000);
+try { readdirSync(SHELF); } catch (err) { log("shelf not readable yet", err.code || ""); }
 connect();
