@@ -58,7 +58,7 @@ async function music(action) {
 
 async function media(url, focus) {
   if (!/^https?:\/\//i.test(url)) throw new Error("To nie jest link.");
-  const tool = ["/usr/local/bin/yt-dlp", "/opt/homebrew/bin/yt-dlp"].find((f) => existsSync(f));
+  const tool = [process.env.VALET_YTDLP, join(homedir(), ".valet-pilot", "venv", "bin", "yt-dlp"), "/usr/local/bin/yt-dlp", "/opt/homebrew/bin/yt-dlp"].find((f) => f && existsSync(f));
   if (!tool) throw new Error("Na Macu nie ma narzędzia yt-dlp do pobierania wideo.");
   const dir = mkdtempSync(join(tmpdir(), "valet-media-"));
   try {

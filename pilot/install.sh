@@ -11,6 +11,11 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 mkdir -p "$DIR/app" "$HOME/Library/LaunchAgents"
 chmod 700 "$DIR"
 cp hub.mjs "$DIR/app/hub.mjs"
+PY="$(command -v python3 || true)"
+if [ -x "$PY" ]; then
+  [ -x "$DIR/venv/bin/pip" ] || "$PY" -m venv "$DIR/venv"
+  "$DIR/venv/bin/pip" install -q -U yt-dlp || echo "yt-dlp not updated"
+fi
 ( umask 077; grep '^ACCESS_TOKEN=' "$ROOT/worker/.prod.vars" | cut -d= -f2 > "$DIR/token" )
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
