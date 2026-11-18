@@ -9,6 +9,7 @@ CHAT_MODEL = "claude-sonnet-5-5"
 TEXT_MODEL = "claude-haiku-5-5"
 DOC_MODEL = "claude-opus-5-5"
 DAILY_USD = "6"
+KAGGLE_USER = "jerzysukiennik"
 
 [[durable_objects.bindings]]
 name = "VALET"

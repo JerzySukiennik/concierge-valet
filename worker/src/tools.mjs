@@ -129,6 +129,7 @@ const CUSTOM = [
     description: "Throw away the WhatsApp messages that are waiting for his approval, when he says not to send them.",
     input_schema: obj({}),
   },
+  { name: "kaggle_runs", description: "List his latest notebooks on Kaggle with the status of each run (running, complete, error) and, for a failed one, the end of its log. Use it when he asks about a training, a render or anything else he runs on Kaggle.", input_schema: obj({}) },
   { name: "code_sessions", description: "List the Claude Code sessions that are open right now in the Claude app on his Mac: title, project, whether each is working or idle, and its last message. Use it before you read or prompt a session, and when he asks what Claude is doing.", input_schema: obj({}) },
   {
     name: "code_read",
