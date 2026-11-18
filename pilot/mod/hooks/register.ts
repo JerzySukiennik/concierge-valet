@@ -35,9 +35,10 @@ async function loop($: EngineInterface): Promise<void> {
   let wait = 5000
   try {
     link.id = await $.session.id()
+    const asked = await $.clock.now()
     const got = await hub($, 'GET', `/next?session=${encodeURIComponent(link.id)}`)
-    if (got) wait = 50
     const cmd = got?.cmd
+    if (got) wait = cmd || (await $.clock.now()) - asked > 1500 ? 50 : 2000
     if (cmd?.kind === 'hello') {
       await greet($)
     } else if (cmd?.kind === 'prompt' && cmd.text) {
