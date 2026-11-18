@@ -9,3 +9,4 @@ Niepotrzebne/test-out/
 Niepotrzebne/**/podglad*.png
 .prod.vars
 macapp/build/
+Niepotrzebne/skroty/

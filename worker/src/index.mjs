@@ -52,6 +52,10 @@ export default {
         return valet.fetch(req);
       }
       const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+      if (url.pathname === "/api/hook") {
+        if (req.method !== "POST" || !same(token, `hk_${await sign(env.ACCESS_TOKEN, "hook|1")}`)) return json({ error: "unauthorized" }, 401);
+        return valet.fetch(req);
+      }
       if (!same(token, env.ACCESS_TOKEN)) return withCors(json({ error: "unauthorized" }, 401), env, origin);
       return withCors(await valet.fetch(req), env, origin);
     } catch (err) {
