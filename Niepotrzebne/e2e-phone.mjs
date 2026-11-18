@@ -71,7 +71,7 @@ async function tour(tag, opts) {
   await shot(page, `${tag}-01-czat`);
   await overflow(page, `${tag} chat`);
 
-  await page.evaluate(() => { const v = document.getElementById("view-chat"), sky = document.querySelector("#thread .sky"); v.scrollTop = sky.offsetTop - 160; });
+  await page.evaluate(() => { const v = document.getElementById("view-chat"), sky = document.querySelector("#thread .sky"); v.scrollTop = sky ? sky.offsetTop - 160 : Math.max(0, v.scrollHeight - v.clientHeight - 1400); });
   await settle(page, 400);
   check(`${tag} jump button appears when scrolled up`, await page.evaluate(() => document.getElementById("jump").classList.contains("on")));
   await shot(page, `${tag}-02-czat-pogoda-jump`);
@@ -143,7 +143,7 @@ async function tour(tag, opts) {
   await page.evaluate(() => { const b = document.querySelector(".page-body"); b.scrollTop = b.scrollHeight; });
   await shot(page, `${tag}-12-ustawienia-koniec`);
   await page.mouse.click(W / 2, 12);
-  await settle(page, 700);
+  await settle(page, 1500);
   check(`${tag} backdrop tap closes`, (await sheetState(page)).hidden);
 
   report[`${tag}Errors`] = errors;
@@ -221,7 +221,7 @@ async function flows() {
   await settle(page, 300);
   const q = page.locator("#thread .quote").first();
   if (await q.count()) {
-    await page.evaluate(() => { const qq = document.querySelector("#thread .quote"); qq.scrollIntoView({ block: "center" }); });
+    await page.evaluate(() => { const qq = document.querySelector("#thread .quote"); if (qq) qq.scrollIntoView({ block: "center" }); });
     await settle(page, 300);
     await q.tap();
     await page.waitForTimeout(500);
@@ -358,7 +358,7 @@ async function running() {
   const route = (page) => page.route("**/api/boot", async (r) => { const res = await r.fetch(); const d = await res.json(); d.tasks = d.tasks.map((t, i) => (i ? t : { ...t, status: "running", step: "Składa PDF z planem" })); d.status = { state: "working", text: "Składa PDF z planem" }; await r.fulfill({ json: d }); });
   const { ctx, page, errors } = await open({ route });
   await ready(page);
-  await page.evaluate(() => { const c = document.querySelector('#thread [data-task]'); c.scrollIntoView({ block: "center" }); });
+  await page.evaluate(() => { const c = document.querySelector('#thread [data-task]'); if (c) c.scrollIntoView({ block: "center" }); });
   await shot(page, "zadanie-w-toku-czat", 900);
   await page.tap('[data-tab="tasks"]');
   await shot(page, "zadanie-w-toku-lista", 900);
