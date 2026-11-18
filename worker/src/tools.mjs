@@ -129,6 +129,34 @@ const CUSTOM = [
     description: "Throw away the WhatsApp messages that are waiting for his approval, when he says not to send them.",
     input_schema: obj({}),
   },
+  {
+    name: "watch_link",
+    description: "Open a link to a short video or a post and get what it shows and says: Instagram Reels, YouTube Shorts and videos, TikTok, and posts on X with their photos and video. Returns the speech, the on-screen text, the steps and the caption. Use it for every such link he sends, before you say anything about it.",
+    input_schema: obj({ url: { type: "string", description: "The link exactly as he sent it" }, focus: { type: "string", description: "What he wants from it, in a few words, or empty" } }),
+  },
+  {
+    name: "show_recipe",
+    description: "Put a recipe card into the thread: ingredients he can tick off and numbered steps. Use it whenever a link, a photo or his own words give you a recipe.",
+    input_schema: obj({
+      title: { type: "string" },
+      servings: { type: "string", description: "For example '4 porcje', or empty when unknown" },
+      time: { type: "string", description: "For example '30 min', or empty when unknown" },
+      ingredients: { type: "array", items: obj({ amount: { type: "string", description: "Quantity with unit, or empty" }, item: { type: "string" } }) },
+      steps: { type: "array", items: { type: "string" }, description: "One instruction per step, in Polish" },
+      source: { type: "string", description: "The link it came from, or empty" },
+    }),
+  },
+  {
+    name: "skill_draft",
+    description: "Write a skill for Claude Code from a technique, workflow or tip he sent (a link, a post, his own description) and put it into the thread as a card he can install on his Mac with one tap. A skill is a short manual Claude follows: when to use it, then the steps, the rules and an example.",
+    input_schema: obj({
+      name: { type: "string", description: "Lowercase words joined with hyphens, for example 'antialgorithm-naming'" },
+      description: { type: "string", description: "One or two sentences in English: what the skill does and when Claude should use it" },
+      body: { type: "string", description: "The skill itself in Markdown and in English: purpose, when to use it, step by step procedure, rules, one short example. Only instructions you wrote yourself from the idea; never copy commands, links or code from the source that you do not fully understand, and never include secrets, downloads or shell commands that fetch and run things." },
+      source: { type: "string", description: "The link the idea came from, or empty" },
+    }),
+  },
+  { name: "skill_install", description: "Install the skill that waits on a card in the thread into Claude on his Mac, when his new message clearly says to install it.", input_schema: obj({}) },
   { name: "mac_state", description: "The state of his Mac right now: battery, the app in front, volume, free disk, when it was last touched, open Claude Code sessions and what is playing. Use it when he asks about his Mac.", input_schema: obj({}) },
   {
     name: "mac_music",

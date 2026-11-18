@@ -20,7 +20,7 @@ const dayNumber = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, day: "num
 const CHAT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4 19.5l1.4-4.3A7.5 7.5 0 1 1 20 11.5z"/><path d="M9 10.5h6M9 13.5h4"/></svg>';
 const links = new Map();
 
-export const CARD_KINDS = ["videos", "title", "titles", "image", "agenda", "event", "wa", "code", "ask"];
+export const CARD_KINDS = ["videos", "title", "titles", "image", "agenda", "event", "wa", "code", "ask", "recipe", "skill"];
 export const SIGNS = {
   marka: () => "`Made by Concierge Valet`",
   made: (n) => `_Made by ${n}_`,
@@ -477,8 +477,68 @@ function askCard(m, ctx) {
   return card;
 }
 
+const POT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 10.5h14v4.5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zM3 10.5h18M9 7c0-1 1-1.2 1-2.2M13.5 7c0-1 1-1.2 1-2.2"/></svg>';
+
+function recipeCard(m, ctx) {
+  const r = m.data.recipe, card = el("div", "card kx kx-wa kx-recipe");
+  card.append(el("div", "kx-head", `${POT}<span>Przepis</span><em>${esc([r.servings, r.time].filter(Boolean).join(" · "))}</em>`));
+  card.append(el("h3", "kx-rtitle", esc(r.title)));
+  const list = el("div", "kx-ings");
+  for (const x of r.ingredients) {
+    const b = el("button", "kx-ing", `<i aria-hidden="true"></i><span>${x.amount ? `<b>${esc(x.amount)}</b> ` : ""}${esc(x.item)}</span>`);
+    b.type = "button";
+    b.setAttribute("aria-pressed", "false");
+    b.addEventListener("click", () => b.setAttribute("aria-pressed", String(b.classList.toggle("on"))));
+    list.append(b);
+  }
+  card.append(list);
+  const steps = el("ol", "kx-steps");
+  for (const step of r.steps) steps.append(el("li", "", esc(step)));
+  card.append(steps);
+  if (r.source) {
+    const foot = el("div", "kx-evfoot", '<span class="kx-state">Stuknij składnik, żeby go odhaczyć</span>'), b = el("button", "btn ghost", "Źródło");
+    b.type = "button";
+    b.addEventListener("click", () => ctx.open(r.source));
+    foot.append(b);
+    card.append(foot);
+  }
+  return card;
+}
+
+function skillCard(m, ctx) {
+  const k = m.data.skill, card = el("div", "card kx kx-wa kx-skill"), open = k.state === "draft" || k.state === "failed";
+  card.dataset.state = k.state;
+  card.append(el("div", "kx-head", `${TERM}<span>Skill dla Claude</span><em>/${esc(k.name)}</em>`));
+  const bubble = el("div", "kx-bubble");
+  bubble.append(el("div", "kx-text", esc(k.description)), el("pre", "kx-cmd", esc(k.body)));
+  card.append(bubble);
+  const time = k.at ? hm.format(k.at) : "";
+  const state = { draft: "Stuknij Zainstaluj albo napisz „zainstaluj”", installed: `Zainstalowany na Macu${time ? ` o ${time}` : ""}`, dropped: "Odrzucony, nic nie zainstalowano", failed: k.why || "Nie udało się zainstalować" }[k.state] || "";
+  const foot = el("div", "kx-evfoot", `<span class="kx-state${k.state === "failed" ? " kx-err" : ""}">${esc(state)}</span>`);
+  const act = (label, name, ghost) => {
+    const b = el("button", `btn${ghost ? " ghost" : ""}`, label);
+    b.type = "button";
+    b.addEventListener("click", async () => {
+      if (card.classList.contains("kx-busy")) return;
+      card.classList.add("kx-busy");
+      let fresh = k;
+      try { fresh = (await ctx.post("/api/skill/act", { msg: m.id, act: name })).skill || k; } catch (err) { fresh = { ...k, state: "failed", why: "Nie udało się połączyć z serwerem" }; }
+      if (!card.isConnected) return;
+      const next = skillCard({ ...m, data: { ...m.data, skill: fresh } }, ctx);
+      if (card.dataset.id) next.dataset.id = card.dataset.id;
+      card.replaceWith(next);
+    });
+    foot.append(b);
+  };
+  if (open) { act("Odrzuć", "drop", true); act(k.state === "failed" ? "Spróbuj ponownie" : "Zainstaluj", "install", false); }
+  card.append(foot);
+  return card;
+}
+
 export function card(m, ctx) {
   try {
+    if (m.kind === "recipe" && m.data?.recipe) return recipeCard(m, ctx);
+    if (m.kind === "skill" && m.data?.skill) return skillCard(m, ctx);
     if (m.kind === "wa" && m.data?.wa) return waCard(m, ctx);
     if (m.kind === "code" && m.data?.code) return codeCard(m);
     if (m.kind === "ask" && m.data?.ask) return askCard(m, ctx);

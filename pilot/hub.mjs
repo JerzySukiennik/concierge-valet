@@ -1,7 +1,7 @@
 /* Concierge Valet pilot hub: the meeting point on this Mac between the sessions of the Claude app (the valet-pilot mod talks to it over a private Unix socket) and the cloud agent (over the bridge socket). It lists live sessions, passes the owner's prompts into them and reports finished turns. */
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { homedir, hostname, uptime } from "node:os";
+import { homedir, hostname, tmpdir, uptime } from "node:os";
 import { basename, extname, join, relative, sep } from "node:path";
 import { execFile } from "node:child_process";
 
@@ -29,7 +29,8 @@ const idleSeconds = () => new Promise((resolve) => {
   });
 });
 
-const sh = (file, args, ms = 6000) => new Promise((resolve) => execFile(file, args, { timeout: ms, maxBuffer: 4e6 }, (err, out) => resolve(err ? "" : String(out).trim())));
+const TOOLS_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+const sh = (file, args, ms = 6000) => new Promise((resolve) => execFile(file, args, { timeout: ms, maxBuffer: 24e6, env: { ...process.env, PATH: TOOLS_PATH } }, (err, out) => resolve(err ? "" : String(out).trim())));
 const script = (source) => sh("/usr/bin/osascript", ["-e", source], 8000);
 
 async function macState() {
@@ -53,6 +54,41 @@ async function music(action) {
   if (!out) throw new Error(`macOS nie pozwolił sterować aplikacją ${player}. Trzeba raz kliknąć zgodę w okienku na Macu.`);
   const [state, track, artist] = out.split("|");
   return { player, state, track: track || "", artist: artist || "" };
+}
+
+async function media(url, focus) {
+  if (!/^https?:\/\//i.test(url)) throw new Error("To nie jest link.");
+  const tool = ["/usr/local/bin/yt-dlp", "/opt/homebrew/bin/yt-dlp"].find((f) => existsSync(f));
+  if (!tool) throw new Error("Na Macu nie ma narzędzia yt-dlp do pobierania wideo.");
+  const dir = mkdtempSync(join(tmpdir(), "valet-media-"));
+  try {
+    let info = null;
+    try { info = JSON.parse(await sh(tool, ["-J", "--no-playlist", "--no-warnings", "--", url], 60000)); } catch (err) {}
+    if (!info) throw new Error("Nie udało się otworzyć tego linku: może jest prywatny albo wymaga logowania.");
+    if ((info.duration || 0) > 900) throw new Error("To wideo ma ponad 15 minut, a na razie oglądam tylko krótkie.");
+    await sh(tool, ["-f", "b[height<=480][ext=mp4]/bv*[height<=480]+ba/b[height<=720]/b", "--merge-output-format", "mp4", "--max-filesize", "45M", "--no-playlist", "--no-warnings", "-o", join(dir, "clip.%(ext)s"), "--", url], 200000);
+    const file = readdirSync(dir).find((f) => /\.(mp4|mov|webm|mkv)$/i.test(f));
+    if (!file) throw new Error("Nie udało się pobrać wideo z tego linku.");
+    const res = await fetch(`${API}/api/media`, { method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": file.endsWith(".webm") ? "video/webm" : "video/mp4", "x-focus": encodeURIComponent(String(focus || "")) }, body: readFileSync(join(dir, file)) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.text) throw new Error(d.error || `Serwer nie obejrzał wideo (${res.status}).`);
+    log("media", info.extractor_key || "?", `${Math.round(info.duration || 0)}s`);
+    return { site: clip(info.extractor_key, 30), title: clip(info.title, 200), author: clip(info.uploader || info.channel || info.uploader_id, 80), caption: String(info.description || "").slice(0, 3000), seconds: Math.round(info.duration || 0), text: d.text };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function installSkill(input) {
+  const name = String(input.name || ""), body = String(input.body || "").trim(), description = String(input.description || "").replace(/\s+/g, " ").trim();
+  if (!/^[a-z0-9][a-z0-9-]{2,40}$/.test(name) || !description || body.length < 40 || body.length > 20000) throw new Error("Ten skill ma złą nazwę albo pustą treść.");
+  const dir = join(process.env.VALET_PILOT_SKILLS || join(homedir(), ".claude", "skills"), name), mark = join(dir, ".valet");
+  if (existsSync(dir) && !existsSync(mark)) throw new Error(`Skill o nazwie ${name} już istnieje i nie jest mój, więc go nie nadpisuję.`);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n${body}\n`);
+  writeFileSync(mark, `${JSON.stringify({ by: "Concierge Valet", source: String(input.source || ""), at: new Date().toISOString() })}\n`);
+  log("skill", name);
+  return { path: `~/.claude/skills/${name}/SKILL.md` };
 }
 
 function shelf(query, limit = 12) {
@@ -147,6 +183,8 @@ async function run(tool, input) {
     return { ok: true };
   }
   if (tool === "hub.state") return macState();
+  if (tool === "hub.media") return media(String(input.url || ""), input.focus);
+  if (tool === "hub.skill") return installSkill(input);
   if (tool === "hub.music") return music(String(input.action || "status"));
   if (tool === "hub.files") {
     try { return { folder: "Documents/Gzowo Labs", files: shelf(String(input.query || ""), Math.max(1, Math.min(20, +input.limit || 12))) }; } catch (err) { throw new Error(err.code === "EPERM" || err.code === "EACCES" ? "macOS nie dał dostępu do folderu Dokumenty. Trzeba raz kliknąć zgodę w okienku na Macu." : `Nie udało się przejrzeć folderu: ${err.message}`); }
