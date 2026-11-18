@@ -203,6 +203,8 @@ kbd { font: 11px var(--font); color: var(--faint); margin-left: auto; }
 .pixgrid i[data-k="3"] { background: #d9822b; }
 .pixgrid i[data-k="4"] { background: var(--accent); }
 .note { font-size: 12.5px; color: var(--muted); }
+.qr { width: 232px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid var(--line); justify-self: start; }
+.qr img { display: block; width: 100%; height: auto; }
 .actions { display: flex; gap: 8px; align-items: center; }
 
 .insp { border-left: 1px solid var(--line); min-width: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); }

@@ -1,0 +1,10 @@
+{
+  "name": "concierge-valet-link",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.5" },
+  "dependencies": {
+    "baileys": "7.0.0-rc14",
+    "qrcode": "1.5.4"
+  }
+}

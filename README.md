@@ -12,6 +12,8 @@ A personal, proactive agent that lives in one message thread, in the spirit of t
   - Claude models: Sonnet 5.5 for conversation, Haiku 5.5 for briefs, Opus 5.5 for documents (changeable in settings).
   - `calendar.mjs`: iCloud calendar over CalDAV (reads events with recurrences expanded by ical.js, adds and changes events, deletes only after a tap on a confirmation card), synced every 30 minutes for nudges before events and for the briefs.
   - `connectors.mjs`: YouTube Data API search, TMDB films and series with where to watch in Poland, image generation through OpenRouter. Generated images are stored in the thread's own SQLite blob table and served through the signed `/f/` links.
+- `link/`: the WhatsApp link, a small Node service that holds a linked-device session (Baileys, pinned to the official package) and answers the agent over the bridge socket: chats, messages, sends approved on a card, new messages from watched chats. Installed as a LaunchAgent by `link/install.sh`; the session and the message store live in `~/.valet-link`, never in the repository.
+- `macapp/`: the native Mac shell and the bridge inside it.
 - `Niepotrzebne/`: design rounds, the avatar lab and dev helpers.
 
 ## Local development

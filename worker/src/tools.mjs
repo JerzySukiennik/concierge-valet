@@ -97,13 +97,13 @@ const CUSTOM = [
   },
   {
     name: "whatsapp_chats",
-    description: "List his WhatsApp chats through his Mac: groups and people, newest first, with unread counts. Works only while the context says the Mac is connected.",
+    description: "List his WhatsApp chats: groups and people, newest first, with unread counts. Works only while the context says WhatsApp is connected.",
     strict: true,
     input_schema: obj({ query: { type: "string", description: "Part of a chat name to filter by, or empty for the most recent chats" } }),
   },
   {
     name: "whatsapp_read",
-    description: "Read recent messages of one WhatsApp chat through his Mac, with the authors' names. Use it when he asks what was written, what was assigned, when something is, or before drafting a reply.",
+    description: "Read recent messages of one WhatsApp chat, with the authors' names. Use it when he asks what was written, what was assigned, when something is, or before drafting a reply.",
     strict: true,
     input_schema: obj({
       chat: { type: "string", description: "Chat or group name, or a clear part of it" },
@@ -115,7 +115,7 @@ const CUSTOM = [
     description: "Prepare a WhatsApp message for him to approve: puts a card with the text into the thread. Nothing is sent until he taps send on the card; he can edit the text there. A signature naming you is added automatically, so do not write one.",
     strict: true,
     input_schema: obj({
-      chat: { type: "string", description: "Chat or group name the message is for" },
+      chat: { type: "string", description: "Chat or group name the message is for; You for his own chat with himself" },
       text: { type: "string", description: "The message exactly as it should be sent, in his voice: short, natural, the way a student writes to classmates or the way he writes to that person. WhatsApp formatting only: *bold*, _italic_, simple lines" },
     }),
   },

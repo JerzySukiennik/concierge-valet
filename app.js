@@ -79,6 +79,12 @@ const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1).replace(".", ","
 const isImage = (f) => String(f?.mime || "").startsWith("image/");
 const NUDGES = [[0, "Wyłączone"], [10, "10 min"], [15, "15 min"], [30, "30 min"], [60, "1 godz."]];
 const nudgeName = (n) => (NUDGES.find(([v]) => v === n) || NUDGES[0])[1];
+const KNOWN_KINDS = ["text", "remind", "error", "task", "sky", "brief", ...CARD_KINDS];
+const waState = () => {
+  const m = S.mac || {};
+  if (m.link) return !m.link.on ? "Łącze wyłączone" : m.link.state === "open" ? "Połączony" : m.link.state === "qr" ? "Czeka na kod QR" : "Łączy się";
+  return m.on ? (m.wa ? "Połączony przez Maca" : "Mac bez dostępu do WhatsAppa") : "Niepołączony";
+};
 const signText = (key) => (SIGNS[key] || SIGNS.marka)(S.settings?.agents?.valet?.name || "Valet", "Jurka").replace(/[_`]|^> /g, "");
 const cards = {
   link: (id) => api("/api/file/link", { id, hold: true }).then((d) => d.url),
@@ -235,6 +241,14 @@ function nodes(m, join) {
   bubble.dataset.id = m.id;
   out.push(bubble);
   for (const f of m.data?.files || []) { const c = fileNode(f); c.classList.add("att"); out.push(c); }
+  if (m.who === "agent" && m.kind && !KNOWN_KINDS.includes(m.kind)) {
+    const note = el("div", "sys att", "Ta wiadomość ma kartę, której ta wersja apki jeszcze nie zna. ");
+    const b = el("button", "btn ghost small", "Odśwież apkę");
+    b.type = "button";
+    b.addEventListener("click", () => location.reload());
+    note.append(b);
+    out.push(note);
+  }
   if (m.data?.sources?.length) {
     const row = el("div", "sources att hscroll");
     for (const s of m.data.sources) {
@@ -735,7 +749,7 @@ async function connect() {
       const ev = JSON.parse(e.data);
       if (ev.t === "msg") addMsg(ev.m);
       else if (ev.t === "edit") editMsg(ev.m);
-      else if (ev.t === "mac") S.mac = ev.mac;
+      else if (ev.t === "mac") { S.mac = ev.mac; if ($("w-state")) $("w-state").textContent = waState(); }
       else if (ev.t === "status") setStatus(ev);
       else if (ev.t === "task") updateTask(ev.task);
       else if (ev.t === "files") { S.files = ev.files; renderMake(); }
@@ -1118,11 +1132,11 @@ function settingsPage() {
     <p class="foot">${S.calendar?.on ? "Valet czyta kalendarz z iCloud, dodaje i przenosi wydarzenia, a o usunięcie zawsze pyta." : "Żeby Valet widział kalendarz, na serwerze musi być hasło aplikacji iCloud."}</p>
     <div class="sec">WhatsApp</div>
     <div class="group">
-      <div class="row"><span class="meta"><strong>Mac</strong></span><span class="val">${S.mac?.on ? (S.mac.wa ? "Połączony" : "Połączony, bez dostępu do WhatsAppa") : "Niepołączony"}</span></div>
+      <div class="row"><span class="meta"><strong>Połączenie</strong></span><span class="val" id="w-state">${esc(waState())}</span></div>
       <label class="row tap select-row"><span class="meta"><strong>Podpis</strong></span><span class="val" id="w-sign-val">${esc(signText(s.whatsapp?.sign))}</span>${ICON.updown}<select id="w-sign" aria-label="Podpis pod wiadomościami">${Object.keys(SIGNS).map((k) => `<option value="${k}"${(s.whatsapp?.sign || "marka") === k ? " selected" : ""}>${esc(signText(k))}</option>`).join("")}</select></label>
       <div class="row tap" data-switch="w-pro"><span class="meta"><strong>Pilnowanie rozmów</strong><span class="sub">Valet pyta, czy odpisać</span></span><button type="button" class="switch" role="switch" id="w-pro" aria-label="Pilnowanie rozmów" aria-checked="${s.whatsapp?.proactive !== false}"><i></i></button></div>
     </div>
-    <p class="foot">Valet czyta WhatsAppa przez aplikację na Macu i niczego nie wysyła bez Twojego „Wyślij”. Pilnowane rozmowy ustawisz w aplikacji na Macu.</p>
+    <p class="foot">Valet niczego nie wysyła bez Twojego „Wyślij”. Kod QR do połączenia WhatsAppa i listę pilnowanych rozmów znajdziesz w aplikacji na Macu.</p>
     <div class="sec">Wydatki</div>
     <div class="group" id="spend">
       <div class="row col meter-row"><div class="row-top"><strong>Dziś</strong><span class="val" id="spend-today"></span></div><div class="meter"><i id="meter"></i></div></div>

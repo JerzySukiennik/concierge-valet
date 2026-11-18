@@ -73,6 +73,24 @@ const money = (n) => n.toFixed(2).replace(".", ",");
 const agentOf = (key) => S.settings.agents[key] || S.settings.agents.valet;
 const isImage = (f) => String(f?.mime || "").startsWith("image/");
 const NUDGES = [[0, "Wyłączone"], [10, "10 min"], [15, "15 min"], [30, "30 min"], [60, "1 godz."]];
+const KNOWN_KINDS = ["text", "remind", "error", "task", "sky", "brief", ...CARD_KINDS];
+function linkNote() {
+  const m = S.mac;
+  if (!m.link) return `${m.on ? `Ten Mac jest połączony z Valetem${m.wa ? " i ma dostęp do danych WhatsAppa." : ", ale nie ma jeszcze dostępu do danych WhatsAppa."}` : "Mac nie jest połączony. Valet sięga do WhatsAppa tylko wtedy, gdy ta aplikacja działa na Macu."} Valet niczego nie wysyła sam: wiadomość wychodzi dopiero po Twoim „Wyślij” na karcie.`;
+  const where = m.link.host ? ` (${m.link.host})` : "";
+  if (!m.link.on) return "Łącze WhatsApp nie działa, więc Valet nie widzi teraz WhatsAppa. Sprawdź komputer, na którym jest uruchomione.";
+  if (m.link.state === "open") return `WhatsApp jest połączony przez łącze${where}. Czytanie i wysyłanie działają w tle, bez ruszania ekranu, a wiadomość wychodzi dopiero po Twoim „Wyślij” na karcie.`;
+  if (m.link.state === "qr") return "Łącze czeka na połączenie z WhatsAppem. Na telefonie otwórz WhatsApp, wejdź w Ustawienia, Połączone urządzenia, stuknij Połącz urządzenie i zeskanuj ten kod.";
+  return `Łącze${where} łączy się z WhatsAppem.`;
+}
+function paintLink() {
+  if ($("w-note")) $("w-note").textContent = linkNote();
+  const box = $("w-qr");
+  if (!box) return;
+  const qr = S.mac.link?.state === "qr" ? S.mac.link.qr : "";
+  box.hidden = !qr;
+  if (qr && box.dataset.v !== qr) { box.dataset.v = qr; box.innerHTML = `<img alt="Kod QR do połączenia WhatsAppa" src="data:image/svg+xml;utf8,${encodeURIComponent(qr)}">`; }
+}
 const cards = {
   link: (id) => api("/api/file/link", { id, hold: true }).then((d) => d.url),
   post: (path, body) => api(path, body),
@@ -190,6 +208,13 @@ function nodes(m) {
   line.append(bubble, meta);
   out.push(line);
   for (const f of m.data?.files || []) out.push(fileNode(f));
+  if (m.who === "agent" && m.kind && !KNOWN_KINDS.includes(m.kind)) {
+    const note = el("div", "sys", "Ta wiadomość ma kartę, której ta wersja aplikacji jeszcze nie zna. ");
+    const b = el("button", "btn ghost", "Odśwież");
+    b.addEventListener("click", () => location.reload());
+    note.append(b);
+    out.push(note);
+  }
   if (m.data?.sources?.length) {
     const row = el("div", "sources");
     for (const s of m.data.sources) {
@@ -565,7 +590,7 @@ async function connect() {
       if (ev.t === "msg") addMsg(ev.m);
       else if (ev.t === "edit") editMsg(ev.m);
       else if (ev.t === "calendar") { S.calendar.today = ev.today; renderInspector(); }
-      else if (ev.t === "mac") S.mac = ev.mac;
+      else if (ev.t === "mac") { S.mac = ev.mac; paintLink(); }
       else if (ev.t === "status") setStatus(ev);
       else if (ev.t === "task") updateTask(ev.task);
       else if (ev.t === "files") { S.files = ev.files; if (S.view === "files") renderFiles(); renderInspector(); }
@@ -686,9 +711,10 @@ function openSettings() {
     <div class="note">${S.calendar.on ? `Połączony z iCloud, kalendarze: ${S.calendar.calendars.length}. Valet czyta kalendarz, dodaje i przenosi wydarzenia, a o usunięcie zawsze pyta.` : "Niepołączony. Żeby Valet widział kalendarz, na serwerze musi być hasło aplikacji iCloud."}</div>
     ${S.calendar.on ? `<div class="f"><span>Przypomnienie</span><select id="c-nudge">${NUDGES.map(([v, n]) => `<option value="${v}"${(s.calendar?.nudge ?? 30) === v ? " selected" : ""}>${n}</option>`).join("")}</select></div>
     <div class="f"><span>Nowe wydarzenia</span><select id="c-home">${S.calendar.calendars.filter((c) => c.write).map((c) => `<option value="${esc(c.name)}"${s.calendar?.home === c.name ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>` : ""}
-    <h3>Mac i WhatsApp</h3>
-    <div class="note">${S.mac.on ? `Ten Mac jest połączony z Valetem${S.mac.wa ? " i ma dostęp do danych WhatsAppa." : ", ale nie ma jeszcze dostępu do danych WhatsAppa."}` : "Mac nie jest połączony. Valet sięga do WhatsAppa tylko wtedy, gdy ta aplikacja działa na Macu."} Valet niczego nie wysyła sam: wiadomość wychodzi dopiero po Twoim „Wyślij” na karcie, przez zwykłą aplikację WhatsApp.</div>
-    ${shell && S.mac.on && !S.mac.ax ? '<div class="actions"><button class="btn ghost" id="ax-grant">Nadaj uprawnienie do wysyłania</button><span class="note">macOS otworzy ustawienia Dostępności.</span></div>' : ""}
+    <h3>WhatsApp</h3>
+    <div class="note" id="w-note"></div>
+    <div class="qr" id="w-qr" hidden></div>
+    ${shell && !S.mac.link && S.mac.on && !S.mac.ax ? '<div class="actions"><button class="btn ghost" id="ax-grant">Nadaj uprawnienie do wysyłania</button><span class="note">macOS otworzy ustawienia Dostępności.</span></div>' : ""}
     <div class="f"><span>Podpis</span><select id="w-sign">${Object.keys(SIGNS).map((k) => `<option value="${k}"${(s.whatsapp?.sign || "marka") === k ? " selected" : ""}>${esc(SIGNS[k](s.agents.valet.name, "Jurka").replace(/[_`]|^> /g, ""))}</option>`).join("")}</select></div>
     <label class="switch">Pilnuj rozmów i pytaj, czy odpisać<input type="checkbox" id="w-pro"${s.whatsapp?.proactive !== false ? " checked" : ""}></label>
     <div class="f"><span>Pilnowane</span><input type="text" id="w-watch" value="${esc((s.whatsapp?.watch || []).join(", "))}" placeholder="Nazwy rozmów po przecinku"></div>
@@ -700,6 +726,7 @@ function openSettings() {
     ${shell ? '<div class="actions"><button class="btn ghost" id="notify-test">Wyślij testowe</button></div>' : ""}
     <h3>To urządzenie</h3>
     <div class="actions"><button class="btn ghost" id="unpair">Rozłącz</button></div>`);
+  paintLink();
 }
 
 document.addEventListener("click", async (e) => {
