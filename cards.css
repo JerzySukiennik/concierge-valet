@@ -10,7 +10,7 @@
 .kx-head svg { width: 18px; height: 18px; flex: 0 0 auto; color: var(--fg); }
 .kx-head span { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kx-wa .kx-head { align-items: baseline; }
-.kx-wa .kx-head svg { align-self: center; }
+.kx-wa .kx-head svg { align-self: flex-start; margin-top: 1px; }
 .kx-wa .kx-head span { flex: 0 0 auto; }
 .kx-wa .kx-head em { white-space: normal; }
 .kx-head em { font: italic 14px var(--serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

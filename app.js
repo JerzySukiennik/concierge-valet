@@ -705,6 +705,25 @@ async function send() {
   }
 }
 
+let shellAt = 0;
+async function freshShell() {
+  if (Date.now() - shellAt < 60000) return;
+  shellAt = Date.now();
+  const mine = Date.parse(document.lastModified);
+  let live = 0;
+  try {
+    const r = await fetch("./", { method: "HEAD", cache: "no-store" });
+    live = r.ok ? Date.parse(r.headers.get("last-modified") || "") : 0;
+  } catch (e) {}
+  if (!mine || !live || live <= mine + 1000) return;
+  if (input.value.trim() || document.activeElement?.matches?.("textarea, input")) { shellAt = 0; return; }
+  try {
+    if (sessionStorage.getItem("valet-shell") === String(live)) return;
+    sessionStorage.setItem("valet-shell", String(live));
+  } catch (e) { return; }
+  location.reload();
+}
+
 async function sync() {
   const d = await api("/api/boot");
   S.vapid = d.vapid;
@@ -743,11 +762,11 @@ async function connect() {
     const { ticket } = await api("/api/ticket", {});
     const ws = new WebSocket(`${API.replace(/^http/, "ws")}/api/ws?k=${ticket}`);
     S.ws = ws;
-    ws.onopen = () => { ws._ok = setTimeout(() => { S.retry = 1000; }, 5000); setLive(true); ws._ping = setInterval(() => { try { ws.send("ping"); } catch (e) {} }, 25000); };
+    ws.onopen = () => { ws._ok = setTimeout(() => { S.retry = 1000; }, 5000); setLive(true); freshShell(); ws._ping = setInterval(() => { try { ws.send("ping"); } catch (e) {} }, 25000); };
     ws.onmessage = (e) => {
       if (e.data === "pong") return;
       const ev = JSON.parse(e.data);
-      if (ev.t === "msg") addMsg(ev.m);
+      if (ev.t === "msg") { addMsg(ev.m); if (ev.m.who === "agent") freshShell(); }
       else if (ev.t === "edit") editMsg(ev.m);
       else if (ev.t === "mac") { S.mac = ev.mac; if ($("w-state")) $("w-state").textContent = waState(); }
       else if (ev.t === "status") setStatus(ev);
@@ -1555,7 +1574,9 @@ if (window.visualViewport) {
   fit();
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && S.token && !S.ws && S.booted) sync().then(connect).catch(() => {});
+  if (document.visibilityState !== "visible") return;
+  freshShell();
+  if (S.token && !S.ws && S.booted) sync().then(connect).catch(() => {});
 });
 
 function fromLink() {

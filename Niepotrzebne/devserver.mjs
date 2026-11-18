@@ -1,6 +1,6 @@
-/* Local static server for the app shell: no caching, serves the project root. */
+/* Local static server for the app shell: no caching, serves the project root with Last-Modified like the live host. */
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,9 +13,9 @@ createServer(async (req, res) => {
   const file = normalize(join(root, path.endsWith("/") ? `${path}index.html` : path));
   if (file !== root && !file.startsWith(root + sep)) { res.writeHead(403); return res.end(); }
   try {
-    const body = await readFile(file);
-    res.writeHead(200, { "content-type": types[extname(file)] || "application/octet-stream", "cache-control": "no-store" });
-    res.end(body);
+    const [body, info] = await Promise.all([readFile(file), stat(file)]);
+    res.writeHead(200, { "content-type": types[extname(file)] || "application/octet-stream", "cache-control": "no-store", "last-modified": info.mtime.toUTCString() });
+    res.end(req.method === "HEAD" ? undefined : body);
   } catch {
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("not found");

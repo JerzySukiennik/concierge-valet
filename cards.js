@@ -296,6 +296,13 @@ export function chatMarkup(text) {
   return String(text || "").split("\n").map((line) => (line.startsWith("> ") ? `<span class="kx-quote">${inline(line.slice(2))}</span>` : inline(line))).join("<br>");
 }
 
+const grower = typeof ResizeObserver === "function" ? new ResizeObserver((list) => {
+  for (const entry of list) {
+    const field = entry.target, wide = field.clientWidth;
+    if (wide && wide !== field._wide) { field._wide = wide; field._grow(); }
+  }
+}) : null;
+
 function waCard(m, ctx) {
   const w = m.data.wa, card = el("div", "card kx kx-wa");
   const to = w.to || [{ chat: w.chat, group: w.group, state: w.state === "sent" ? "sent" : "draft" }];
@@ -311,8 +318,10 @@ function waCard(m, ctx) {
     field.rows = 1;
     field.setAttribute("aria-label", "Treść wiadomości");
     const grow = () => { field.style.height = "auto"; field.style.height = `${field.scrollHeight}px`; };
+    field._grow = grow;
     field.addEventListener("input", grow);
-    requestAnimationFrame(grow);
+    if (grower) grower.observe(field);
+    else requestAnimationFrame(grow);
     bubble.append(field);
   } else bubble.append(el("div", "kx-text", chatMarkup(w.text)));
   bubble.append(el("div", "kx-sign", chatMarkup(w.sign)));
