@@ -1,7 +1,7 @@
 // valet-pilot: links this Claude app session to the Concierge Valet hub on the same Mac, so the owner can follow the session and prompt it from his Valet thread. Talks only to the hub's private Unix socket.
 import type { EngineInterface, Register } from 'claude-code'
 
-type Command = { id: string; kind: 'prompt' | 'read'; text?: string; count?: number }
+type Command = { id: string; kind: 'prompt' | 'read' | 'hello'; text?: string; count?: number }
 
 const link = { sock: '', id: '', title: '', live: false }
 
@@ -23,6 +23,14 @@ function tell($: EngineInterface, kind: string, more: Record<string, unknown> = 
   if (link.live && link.id) void hub($, 'POST', '/event', { session: link.id, kind, title: link.title, ...more })
 }
 
+async function greet($: EngineInterface): Promise<void> {
+  if (!link.title) {
+    const first = (await $.session.messages()).find((m) => m.role === 'user' && m.text.trim())
+    if (first) link.title = first.text.trim().replace(/\s+/g, ' ').slice(0, 60)
+  }
+  tell($, 'hello', { cwd: await $.session.cwd(), root: await $.session.root(), model: await $.session.model() })
+}
+
 async function loop($: EngineInterface): Promise<void> {
   let wait = 5000
   try {
@@ -30,7 +38,9 @@ async function loop($: EngineInterface): Promise<void> {
     const got = await hub($, 'GET', `/next?session=${encodeURIComponent(link.id)}`)
     if (got) wait = 50
     const cmd = got?.cmd
-    if (cmd?.kind === 'prompt' && cmd.text) {
+    if (cmd?.kind === 'hello') {
+      await greet($)
+    } else if (cmd?.kind === 'prompt' && cmd.text) {
       void $.prompt.submit({ text: cmd.text, asUser: true })
       await hub($, 'POST', '/result', { id: cmd.id, ok: true, data: {} })
     } else if (cmd?.kind === 'read') {
@@ -56,16 +66,18 @@ export const register: Register = (on) => {
     link.sock = `${home}/.valet-pilot/hub.sock`
     link.id = await $.session.id()
     link.live = true
-    tell($, 'hello', { cwd: e.cwd, root: await $.session.root(), model: await $.session.model() })
+    void greet($)
     $.clock.after(300, () => void loop($))
     return out
   })
 
   on('classic.SessionStart', ($, e, next) => {
-    if (e.session_title) {
-      link.title = e.session_title
-      tell($, 'hello')
-    }
+    if (e.session_title) link.title = e.session_title
+    return next(e)
+  })
+
+  on('classic.UserPromptSubmit', ($, e, next) => {
+    if (e.session_title) link.title = e.session_title
     return next(e)
   })
 

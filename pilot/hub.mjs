@@ -30,7 +30,7 @@ const idleSeconds = () => new Promise((resolve) => {
 function touch(id, patch = {}) {
   let s = sessions.get(id);
   if (!s) {
-    s = { id, cwd: "", root: "", project: "", model: "", title: "", state: "idle", since: Date.now(), seen: Date.now(), last: "", queue: [], waiter: null, remote: false };
+    s = { id, cwd: "", root: "", project: "", model: "", title: "", state: "idle", since: Date.now(), seen: Date.now(), last: "", queue: [], waiter: null, remote: false, asked: false };
     sessions.set(id, s);
     log("session", id.slice(0, 8), "joined");
   }
@@ -94,7 +94,7 @@ async function run(tool, input) {
     if (!text) throw new Error("Pusty prompt.");
     const state = s.state;
     await command(s, { kind: "prompt", text });
-    s.remote = true;
+    s.asked = true;
     log("prompt", s.id.slice(0, 8), `${text.length} chars`);
     return { ...about, state };
   }
@@ -114,6 +114,8 @@ async function event(body) {
   else if (body.kind === "start") {
     s.state = "working";
     s.since = Date.now();
+    s.remote = s.asked;
+    s.asked = false;
     if (!s.title && body.prompt) s.title = clip(body.prompt, 60);
   } else if (body.kind === "done") {
     const remote = s.remote;
@@ -121,7 +123,9 @@ async function event(body) {
     s.since = Date.now();
     s.remote = false;
     if (body.answer) s.last = String(body.answer).slice(0, 4000);
-    send({ t: "event", kind: "code", what: "done", title: label(s), project: s.project || "?", reason: String(body.reason || "answer"), durationMs: +body.durationMs || 0, answer: s.last, remote, idle: await idleSeconds() });
+    const idle = await idleSeconds();
+    log("done", s.id.slice(0, 8), body.reason || "answer", remote ? "remote" : "local", `idle ${idle}s`);
+    send({ t: "event", kind: "code", what: "done", title: label(s), project: s.project || "?", reason: String(body.reason || "answer"), durationMs: +body.durationMs || 0, answer: s.last, remote, idle });
   } else if (body.kind === "bye") {
     sessions.delete(s.id);
     log("session", s.id.slice(0, 8), "left");
@@ -158,7 +162,8 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/next") {
       const id = url.searchParams.get("session");
       if (!id) return reply({ error: "session" }, 400);
-      const s = touch(id);
+      const known = sessions.has(id), s = touch(id);
+      if (!known) return reply({ cmd: { id: "0", kind: "hello" } });
       if (s.queue.length) return reply({ cmd: s.queue.shift() });
       if (s.waiter) s.waiter(null);
       const timer = setTimeout(() => { if (s.waiter === give) s.waiter = null; reply({}); }, 20000);
