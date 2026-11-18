@@ -133,13 +133,21 @@ export async function createEvent(env, cal, e) {
   lines.push("END:VEVENT", "END:VCALENDAR");
   const res = await dav(env, "PUT", href, { body: `${lines.map(fold).join("\r\n")}\r\n`, type: "text/calendar; charset=utf-8", headers: { "if-none-match": "*" } });
   if (res.status !== 201 && res.status !== 204) throw new Error(`iCloud refused to save the event (${res.status})`);
-  return { href, etag: res.headers.get("etag") || "", uid };
+  return { href, etag: String(res.headers.get("etag") || "").replace(/^W\//, ""), uid };
+}
+
+const strong = (etag) => String(etag || "").replace(/^W\//, "");
+
+async function etagOf(env, href) {
+  const res = await dav(env, "PROPFIND", href, { depth: 0, body: '<d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>' });
+  return res.status === 207 ? plain(inner(await res.text(), "getetag")) : "";
 }
 
 export async function changeEvent(env, ref, patch) {
+  const listed = await etagOf(env, ref.href);
   const got = await dav(env, "GET", ref.href);
   if (!got.ok) throw new Error(got.status === 404 ? "that event no longer exists" : `iCloud did not return the event (${got.status})`);
-  const etag = got.headers.get("etag") || ref.etag || "";
+  const etag = listed || strong(got.headers.get("etag")) || ref.etag || "";
   const comp = new ICAL.Component(ICAL.parse(await got.text()));
   const list = comp.getAllSubcomponents("vevent");
   if (list.length !== 1 || list[0].hasProperty("rrule")) throw new Error("repeating events can only be changed in the Calendar app for now");
@@ -164,7 +172,7 @@ export async function changeEvent(env, ref, patch) {
   const res = await dav(env, "PUT", ref.href, { body: comp.toString(), type: "text/calendar; charset=utf-8", headers: etag ? { "if-match": etag } : {} });
   if (res.status === 412) throw new Error("the event changed in the meantime; list the calendar again");
   if (res.status !== 201 && res.status !== 204) throw new Error(`iCloud refused to save the change (${res.status})`);
-  return { etag: res.headers.get("etag") || "" };
+  return { etag: strong(res.headers.get("etag")) };
 }
 
 export async function removeEvent(env, ref) {
