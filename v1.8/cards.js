@@ -1,0 +1,555 @@
+/* Connector cards shared by the phone and Mac apps: YouTube videos, a film or series, a shelf of posters, a generated image with its lightbox. */
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
+const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html !== undefined) n.innerHTML = html; return n; };
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const compact = new Intl.NumberFormat("pl-PL", { notation: "compact", maximumFractionDigits: 1 });
+const ago = new Intl.RelativeTimeFormat("pl", { numeric: "auto" });
+const score = new Intl.NumberFormat("pl-PL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const TMDB = "https://image.tmdb.org/t/p/";
+const PLAY = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5.5" width="19" height="13" rx="4.2" fill="currentColor"/><path d="M10.2 9.3v5.4l4.7-2.7z" fill="var(--card, #fff)"/></svg>';
+const FILM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M8 4.5v15M16 4.5v15M3.5 9.5H8M3.5 14.5H8M16 9.5h4.5M16 14.5h4.5"/></svg>';
+const CAL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
+const WARSAW = "Europe/Warsaw";
+const dayKey = new Intl.DateTimeFormat("sv-SE", { timeZone: WARSAW });
+const hm = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, hour: "numeric", minute: "2-digit" });
+const hourParts = new Intl.DateTimeFormat("en-GB", { timeZone: WARSAW, hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
+const longDay = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, weekday: "long", day: "numeric", month: "long" });
+const shortDate = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, day: "numeric", month: "short" });
+const weekdayShort = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, weekday: "short" });
+const dayNumber = new Intl.DateTimeFormat("pl-PL", { timeZone: WARSAW, day: "numeric" });
+const CHAT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4 19.5l1.4-4.3A7.5 7.5 0 1 1 20 11.5z"/><path d="M9 10.5h6M9 13.5h4"/></svg>';
+const links = new Map();
+
+export const CARD_KINDS = ["videos", "title", "titles", "image", "agenda", "event", "wa", "code", "ask", "recipe", "skill"];
+export const SIGNS = {
+  marka: () => "`Made by Concierge Valet`",
+  made: (n) => `_Made by ${n}_`,
+  asystent: (n, o) => `_${n}, asystent ${o}_`,
+  napisal: (n, o) => `_Napisał ${n}, asystent AI. ${o} przeczytał i zatwierdził._`,
+  cytat: (n, o) => `> ${n} · asystent AI ${o}`,
+  tylda: (n) => `~ ${n}`,
+  kod: (n) => `\`${n}\``,
+};
+
+const plural = (n, one, few, many) => (n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? few : many);
+
+function clockOf(total) {
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function since(ts) {
+  const days = Math.max(0, (Date.now() - ts) / 86400000);
+  if (days < 1) return "dziś";
+  if (days < 30) return ago.format(-Math.round(days), "day");
+  if (days < 365) return ago.format(-Math.max(1, Math.round(days / 30)), "month");
+  return ago.format(-Math.max(1, Math.round(days / 365)), "year");
+}
+
+function spring(kind = "spring") {
+  const css = getComputedStyle(document.documentElement);
+  return { easing: css.getPropertyValue(`--ease-${kind}`).trim() || "cubic-bezier(.2, .9, .25, 1)", duration: (parseFloat(css.getPropertyValue(`--dur-${kind}`)) || 0.5) * 1000 };
+}
+
+function move(node, frames, extra = {}) {
+  if (reduce || !node.animate) return null;
+  try { return node.animate(frames, { ...spring(), ...extra }); } catch (e) { return node.animate(frames, { duration: 320, easing: "ease-out", ...extra }); }
+}
+
+export function fileLink(id, ctx) {
+  const hit = links.get(id);
+  if (hit && hit.until > Date.now()) return hit.url;
+  const url = ctx.link(id);
+  links.set(id, { url, until: Date.now() + 5 * 3600000 });
+  url.catch(() => links.delete(id));
+  return url;
+}
+
+function videos(m) {
+  const card = el("div", "card kx kx-vids");
+  card.append(el("div", "kx-head", `${PLAY}<span>YouTube</span><em>${esc(m.text)}</em>`));
+  m.data.videos.filter((v) => /^[\w-]{6,20}$/.test(v.id)).forEach((v, i) => {
+    const a = el("a", `kx-vid${i === 0 ? " kx-lead" : ""}`);
+    a.href = `https://www.youtube.com/watch?v=${v.id}`;
+    a.target = "_blank";
+    a.rel = "noopener";
+    const meta = [esc(v.channel), v.views ? `${compact.format(v.views)} wyświetleń` : "", v.published ? since(v.published) : ""].filter(Boolean).join(" · ");
+    a.innerHTML = `<span class="kx-thumb"><img loading="lazy" alt="" src="https://i.ytimg.com/vi/${v.id}/${i === 0 ? "sddefault" : "mqdefault"}.jpg"><i></i><b>${v.live ? "na żywo" : clockOf(v.seconds)}</b></span><span class="kx-meta"><strong>${esc(v.title)}</strong><span class="sub">${meta}</span></span>`;
+    const img = a.querySelector("img");
+    if (i === 0) img.addEventListener("error", () => { img.src = `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`; }, { once: true });
+    card.append(a);
+  });
+  return card;
+}
+
+function chips(label, list) {
+  return `<div class="kx-where"><span class="kx-lab">${label}</span><span class="kx-chips">${list.map((p) => `<span class="kx-svc">${p.logo ? `<img loading="lazy" alt="" src="${TMDB}w92${esc(p.logo)}">` : ""}${esc(p.name)}</span>`).join("")}</span></div>`;
+}
+
+function film(m) {
+  const t = m.data.title, movie = t.type === "movie", card = el("div", "card kx kx-film");
+  const years = movie ? t.year : t.year ? (t.ended ? (t.lastYear && t.lastYear !== t.year ? `${t.year}–${t.lastYear}` : t.year) : `od ${t.year}`) : "";
+  const length = movie ? (t.runtime ? `${t.runtime >= 60 ? `${Math.floor(t.runtime / 60)} h ` : ""}${t.runtime % 60} min` : "") : t.seasons ? `${t.seasons} ${plural(t.seasons, "sezon", "sezony", "sezonów")}` : "";
+  const sub = [years, length, (t.genres || []).join(", ")].filter(Boolean).join(" · ");
+  const ring = t.rating ? `<span class="kx-score" title="Ocena w TMDB, ${compact.format(t.votes || 0)} głosów"><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="kx-arc" cx="18" cy="18" r="15" stroke-dasharray="${((t.rating / 10) * 94.25).toFixed(1)} 94.25" transform="rotate(-90 18 18)"/></svg><b>${score.format(t.rating)}</b></span>` : "";
+  const w = t.watch;
+  const where = w ? (w.stream.length ? chips("W abonamencie", w.stream) : "") + (w.free.length ? chips("Za darmo", w.free) : "") + (!w.stream.length && !w.free.length && w.rent.length ? chips("Do wypożyczenia", w.rent) : "") + (!w.stream.length && !w.free.length && !w.rent.length && w.buy.length ? chips("Do kupienia", w.buy) : "") : '<div class="kx-where"><span class="sub">Nie ma jeszcze danych o streamingu w Polsce.</span></div>';
+  const crew = [t.makers?.length ? `${movie ? "Reż." : "Twórcy:"} ${esc(t.makers.join(", "))}` : "", t.cast?.length ? esc(t.cast.join(", ")) : ""].filter(Boolean).join(" · ");
+  const actions = [t.trailer ? `<a class="btn" target="_blank" rel="noopener" href="https://www.youtube.com/watch?v=${esc(t.trailer)}">Zwiastun</a>` : "", `<a class="btn ghost" target="_blank" rel="noopener" href="${esc(w?.link || t.page)}">${w?.link ? "Gdzie obejrzeć" : "Więcej"}</a>`].join("");
+  card.innerHTML = `${t.backdrop ? `<div class="kx-backdrop"><img loading="lazy" alt="" src="${TMDB}w780${esc(t.backdrop)}"></div>` : '<div class="kx-backdrop kx-none"></div>'}
+    <div class="kx-in">
+      <div class="kx-top">${t.poster ? `<img class="kx-poster" loading="lazy" alt="" src="${TMDB}w342${esc(t.poster)}">` : ""}<div class="kx-id"><h3>${esc(t.name)}</h3>${t.original ? `<span class="kx-orig">${esc(t.original)}</span>` : ""}<span class="sub">${esc(sub)}</span></div>${ring}</div>
+      ${t.tagline ? `<p class="kx-tagline">${esc(t.tagline)}</p>` : ""}
+      ${t.overview ? `<p class="kx-plot">${esc(t.overview)}</p>` : ""}
+      ${crew ? `<p class="kx-crew">${crew}</p>` : ""}
+      ${where}
+      <div class="kx-actions">${actions}</div>
+      <div class="kx-credit">Dane: TMDB. Dostępność: JustWatch.</div>
+    </div>`;
+  const plot = card.querySelector(".kx-plot");
+  if (plot) plot.addEventListener("click", () => plot.classList.toggle("kx-open"));
+  return card;
+}
+
+function shelf(m, ctx) {
+  const card = el("div", "card kx kx-shelf");
+  card.append(el("div", "kx-head", `${FILM}<span>${esc(m.text)}</span>`));
+  const rail = el("div", "kx-rail");
+  for (const t of m.data.titles) {
+    const b = el("button", "kx-tile", `<span class="kx-cover"><img loading="lazy" alt="" src="${TMDB}w342${esc(t.poster)}"></span><strong>${esc(t.name)}</strong><span class="sub">${[t.year, t.rating ? score.format(t.rating) : ""].filter(Boolean).join(" · ")}</span>`);
+    b.type = "button";
+    b.addEventListener("click", async () => {
+      if (b.classList.contains("kx-busy")) return;
+      b.classList.add("kx-busy");
+      try { await ctx.post("/api/title", { type: t.type, id: t.id }); } catch (e) { b.classList.add("kx-fail"); }
+      setTimeout(() => b.classList.remove("kx-busy"), 600);
+    });
+    rail.append(b);
+  }
+  card.append(rail);
+  return card;
+}
+
+export function lightbox(url, { from = null, caption = "", ratio = 0, ctx = null } = {}) {
+  const wrap = el("div", "kx-light"), img = el("img"), bar = el("div", "kx-light-bar");
+  wrap.setAttribute("role", "dialog");
+  wrap.setAttribute("aria-label", caption || "Obrazek");
+  img.alt = caption;
+  img.src = url;
+  if (ratio) img.style.setProperty("--ar", ratio);
+  const open = el("button", "", "Otwórz"), close = el("button", "", "Zamknij");
+  bar.append(el("span", "", esc(caption)), open, close);
+  wrap.append(img, bar);
+  document.body.append(wrap);
+  const rect = () => from?.isConnected ? from.getBoundingClientRect() : null;
+  const frames = () => {
+    const a = rect(), b = img.getBoundingClientRect();
+    if (!a || !b.width) return [{ opacity: 0, transform: "scale(.94)" }, { opacity: 1, transform: "none" }];
+    return [{ transformOrigin: "0 0", borderRadius: "16px", transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${a.width / b.width}, ${a.height / b.height})` }, { transformOrigin: "0 0", borderRadius: "10px", transform: "none" }];
+  };
+  const enter = () => { move(img, frames()); if (from) from.style.visibility = "hidden"; };
+  if (ratio) enter(); else img.decode().then(() => { img.style.setProperty("--ar", img.naturalWidth / img.naturalHeight); enter(); }).catch(() => {});
+  let gone = false;
+  const shut = () => {
+    if (gone) return;
+    gone = true;
+    window.removeEventListener("keydown", key, true);
+    wrap.classList.add("out");
+    const back = move(img, frames().reverse(), { duration: 300, easing: "cubic-bezier(.3, .7, .2, 1)", fill: "forwards" });
+    const done = () => { if (from) from.style.visibility = ""; wrap.remove(); };
+    if (back) back.onfinish = done; else done();
+  };
+  const key = (e) => { if (e.key === "Escape") { e.stopPropagation(); shut(); } };
+  window.addEventListener("keydown", key, true);
+  open.addEventListener("click", (e) => { e.stopPropagation(); ctx?.open(url); });
+  wrap.addEventListener("click", shut);
+  return shut;
+}
+
+export async function openImage(file, from, ctx) {
+  const url = await fileLink(file.id, ctx);
+  lightbox(url, { from, caption: String(file.name || "").replace(/\.\w+$/, ""), ratio: file.w && file.h ? file.w / file.h : 0, ctx });
+}
+
+export function thumb(file, ctx) {
+  const img = el("img");
+  img.alt = "";
+  img.loading = "lazy";
+  fileLink(file.id, ctx).then((url) => { img.src = url; }).catch(() => {});
+  return img;
+}
+
+function picture(m, ctx) {
+  const f = m.data.image, box = el("div", "kx kx-shot");
+  box.style.setProperty("--ar", f.w && f.h ? f.w / f.h : 16 / 9);
+  const frame = el("button", "kx-frame");
+  frame.type = "button";
+  frame.setAttribute("aria-label", `Powiększ: ${m.text}`);
+  const img = thumb(f, ctx);
+  img.addEventListener("load", () => frame.classList.add("kx-ready"), { once: true });
+  frame.append(img);
+  frame.addEventListener("click", () => openImage(f, frame, ctx));
+  box.append(frame, el("div", "kx-cap", esc(m.text)));
+  return box;
+}
+
+const noon = (key) => Date.parse(`${key}T12:00:00Z`);
+const lastMoment = (e) => (e.end > e.start ? e.end - 1 : e.start);
+const hourOf = (ts) => { const [h, m] = hourParts.format(ts).split(":"); return +h + +m / 60; };
+const tint = (c) => (/^#[0-9a-f]{6}$/i.test(c || "") ? c : "var(--accent)");
+
+function dayTitle(key) {
+  const today = dayKey.format(Date.now()), tomorrow = dayKey.format(Date.now() + 86400000);
+  const name = longDay.format(noon(key));
+  return key === today ? ["Dziś", name] : key === tomorrow ? ["Jutro", name] : [name.charAt(0).toUpperCase() + name.slice(1), ""];
+}
+
+export function agendaNode(agenda, { ribbon = true, empty = true, heads = (agenda.days || 1) > 1 } = {}) {
+  const box = el("div", "kx-agenda"), now = Date.now(), today = dayKey.format(now);
+  const days = Math.max(1, agenda.days || 1), FROM = 6, HOURS = 17;
+  for (let i = 0; i < days; i++) {
+    const key = new Date(noon(agenda.from) + i * 86400000).toISOString().slice(0, 10);
+    const list = agenda.events.filter((e) => dayKey.format(e.start) <= key && dayKey.format(lastMoment(e)) >= key);
+    if (!list.length && (!empty || days > 7)) continue;
+    const day = el("div", "kx-day"), [lead, rest] = dayTitle(key);
+    if (heads) day.append(el("div", "kx-dayhead", `<strong>${esc(lead)}</strong>${rest ? `<span>${esc(rest)}</span>` : ""}`));
+    const whole = list.filter((e) => e.allDay), timed = list.filter((e) => !e.allDay);
+    if (ribbon && days <= 3 && timed.length) {
+      const band = el("div", "kx-ribbon");
+      for (const e of timed) {
+        const a = dayKey.format(e.start) < key ? 0 : hourOf(e.start), b = dayKey.format(lastMoment(e)) > key ? 24 : hourOf(e.end);
+        const left = Math.max(0, Math.min(100, ((a - FROM) / HOURS) * 100)), right = Math.max(0, Math.min(100, ((b - FROM) / HOURS) * 100));
+        band.insertAdjacentHTML("beforeend", `<i style="left:${left.toFixed(1)}%;width:${Math.max(1.6, right - left).toFixed(1)}%;--c:${tint(e.color)}"></i>`);
+      }
+      const h = hourOf(now);
+      if (key === today && h >= FROM && h <= FROM + HOURS) band.insertAdjacentHTML("beforeend", `<b style="left:${(((h - FROM) / HOURS) * 100).toFixed(1)}%"></b>`);
+      day.append(band, el("div", "kx-ticks", [6, 9, 12, 15, 18, 21].map((t) => `<span style="left:${(((t - FROM) / HOURS) * 100).toFixed(1)}%">${t}</span>`).join("")));
+    }
+    if (whole.length) day.append(el("div", "kx-whole", whole.map((e) => `<span style="--c:${tint(e.color)}">${esc(e.title)}</span>`).join("")));
+    for (const e of timed) {
+      const starts = dayKey.format(e.start) === key, ends = dayKey.format(lastMoment(e)) === key;
+      const state = e.end <= now ? " kx-past" : e.start <= now ? " kx-live" : "";
+      const sub = [e.location, e.cal].filter(Boolean).map(esc).join(" · ");
+      day.append(el("div", `kx-ev${state}`, `<span class="kx-when"><b>${starts ? hm.format(e.start) : "trwa"}</b><i>${ends ? hm.format(e.end) : ""}</i></span><i class="kx-bar" style="--c:${tint(e.color)}"></i><span class="kx-what"><strong>${esc(e.title)}</strong>${sub ? `<span class="sub">${sub}</span>` : ""}</span>${state === " kx-live" ? '<em class="kx-nowtag">teraz</em>' : ""}`));
+    }
+    if (!list.length) day.append(el("div", "kx-free", "Nic w kalendarzu"));
+    box.append(day);
+  }
+  if (!box.children.length) box.append(el("div", "kx-free", "Nic w kalendarzu"));
+  return box;
+}
+
+function agenda(m) {
+  const a = m.data.agenda, card = el("div", "card kx kx-cal");
+  const last = new Date(noon(a.from) + (a.days - 1) * 86400000).toISOString().slice(0, 10);
+  const label = a.days === 1 ? dayTitle(a.from)[0].toLowerCase() : `${shortDate.format(noon(a.from))} do ${shortDate.format(noon(last))}`;
+  card.append(el("div", "kx-head", `${CAL}<span>Kalendarz</span><em>${esc(label)}</em>`));
+  card.append(agendaNode(a, { empty: a.days <= 7 }));
+  return card;
+}
+
+function eventSpan(e) {
+  const first = dayKey.format(e.start), last = dayKey.format(lastMoment(e));
+  const name = (ts) => longDay.format(ts);
+  if (e.allDay) return first === last ? `${name(e.start)} · cały dzień` : `${shortDate.format(e.start)} do ${shortDate.format(lastMoment(e))} · całe dni`;
+  return first === last ? `${name(e.start)} · ${hm.format(e.start)}–${hm.format(e.end)}` : `${shortDate.format(e.start)} ${hm.format(e.start)} do ${shortDate.format(e.end)} ${hm.format(e.end)}`;
+}
+
+function eventCard(m, ctx) {
+  const e = m.data.event, card = el("div", "card kx kx-event");
+  const gone = e.done === "undone" || e.done === "deleted";
+  if (gone) card.classList.add("kx-gone");
+  const sub = [e.location, e.cal].filter(Boolean).map(esc).join(" · ");
+  card.innerHTML = `<div class="kx-evrow"><span class="kx-date" style="--c:${tint(e.color)}"><i>${esc(weekdayShort.format(e.start).replace(".", ""))}</i><b>${dayNumber.format(e.start)}</b></span><span class="kx-what"><strong>${esc(e.title)}</strong><span class="sub">${esc(eventSpan(e))}</span>${sub ? `<span class="sub">${sub}</span>` : ""}</span></div>`;
+  const state = { undone: "Cofnięte, wydarzenia nie ma w kalendarzu", deleted: "Usunięte z kalendarza", kept: "Zostaje w kalendarzu" }[e.done] || { added: "Dodane do kalendarza", changed: "Zmienione w kalendarzu", ask_delete: "Usunąć z kalendarza?" }[e.op] || "";
+  const foot = el("div", "kx-evfoot", `<span class="kx-state">${state}</span>`);
+  const button = (label, act, ghost) => {
+    const b = el("button", `btn${ghost ? " ghost" : ""}`, label);
+    b.type = "button";
+    b.addEventListener("click", async () => {
+      if (card.classList.contains("kx-busy")) return;
+      card.classList.add("kx-busy");
+      try {
+        const d = await ctx.post("/api/calendar/act", { msg: m.id, act });
+        const fresh = eventCard({ ...m, data: { ...m.data, event: d.event || e } }, ctx);
+        if (card.dataset.id) fresh.dataset.id = card.dataset.id;
+        card.replaceWith(fresh);
+      } catch (err) {
+        card.classList.remove("kx-busy");
+        foot.querySelector(".kx-state").textContent = "Nie udało się, spróbuj jeszcze raz";
+      }
+    });
+    foot.append(b);
+  };
+  if (!e.done && e.op === "added") button("Cofnij", "undo", true);
+  if (!e.done && e.op === "ask_delete") { button("Zostaw", "keep", true); button("Usuń", "delete", false); }
+  card.append(foot);
+  return card;
+}
+
+export function chatMarkup(text) {
+  const inline = (line) => esc(line)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<strong>$2</strong>")
+    .replace(/(^|[\s(])_([^_\n]+)_(?=$|[\s).,!?:;])/g, "$1<em>$2</em>")
+    .replace(/(^|[\s(])~([^~\n]+)~(?=$|[\s).,!?:;])/g, "$1<s>$2</s>");
+  return String(text || "").split("\n").map((line) => (line.startsWith("> ") ? `<span class="kx-quote">${inline(line.slice(2))}</span>` : inline(line))).join("<br>");
+}
+
+const toData = (blob) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(",")[1] || ""); r.onerror = reject; r.readAsDataURL(blob); });
+
+export async function pickFile(file) {
+  let blob = file, mime = file.type || (/\.md$/i.test(file.name) ? "text/markdown" : /\.csv$/i.test(file.name) ? "text/csv" : "text/plain"), w = 0, h = 0;
+  if (mime.startsWith("image/") && mime !== "image/gif") {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const scale = Math.min(1, 1568 / Math.max(img.naturalWidth, img.naturalHeight));
+      w = Math.max(1, Math.round(img.naturalWidth * scale));
+      h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.86));
+      mime = "image/jpeg";
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  if (!blob || blob.size > 12e6) throw new Error("big");
+  const data = await toData(blob);
+  return { name: file.name || "Zdjęcie", mime, data, w, h, preview: mime.startsWith("image/") ? `data:${mime};base64,${data}` : "" };
+}
+
+export function trayNode(picks, repaint) {
+  const list = [];
+  for (const p of picks) {
+    const box = el("div", "pick");
+    if (p.preview) { const img = el("img"); img.alt = ""; img.src = p.preview; box.append(img); } else box.textContent = (p.name.split(".").pop() || "plik").slice(0, 4).toUpperCase();
+    const x = el("button", "", '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>');
+    x.type = "button";
+    x.setAttribute("aria-label", `Usuń ${p.name}`);
+    x.addEventListener("click", () => { picks.splice(picks.indexOf(p), 1); repaint(); });
+    box.append(x);
+    list.push(box);
+  }
+  return list;
+}
+
+const grower = typeof ResizeObserver === "function" ? new ResizeObserver((list) => {
+  for (const entry of list) {
+    const field = entry.target, wide = field.clientWidth;
+    if (wide && wide !== field._wide) { field._wide = wide; field._grow(); }
+  }
+}) : null;
+
+function waCard(m, ctx) {
+  const w = m.data.wa, card = el("div", "card kx kx-wa");
+  const to = w.to || [{ chat: w.chat, group: w.group, state: w.state === "sent" ? "sent" : "draft" }];
+  card.dataset.state = w.state;
+  const names = to.map((r) => esc(r.chat));
+  const whom = names.length > 1 ? `${names.slice(0, -1).join(", ")} i ${names[names.length - 1]}` : `${names[0]}${to[0].group ? " (grupa)" : ""}`;
+  card.append(el("div", "kx-head", `${CHAT}<span>WhatsApp</span><em>do: ${whom}</em>`));
+  const bubble = el("div", "kx-bubble"), open = w.state === "draft" || w.state === "failed", partly = to.some((r) => r.state === "sent");
+  let field = null;
+  if (open && !partly) {
+    field = el("textarea", "kx-field");
+    field.value = w.text;
+    field.rows = 1;
+    field.setAttribute("aria-label", "Treść wiadomości");
+    const grow = () => { field.style.height = "auto"; field.style.height = `${field.scrollHeight}px`; };
+    field._grow = grow;
+    field.addEventListener("input", grow);
+    if (grower) grower.observe(field);
+    else requestAnimationFrame(grow);
+    bubble.append(field);
+  } else bubble.append(el("div", "kx-text", chatMarkup(w.text)));
+  bubble.append(el("div", "kx-sign", chatMarkup(w.sign)));
+  card.append(bubble);
+  const time = w.sentAt ? hm.format(w.sentAt) : "";
+  const state = { draft: "Stuknij Wyślij albo napisz „tak”", sending: "Wysyłam", sent: `Wysłane${time ? ` o ${time}` : ""}`, dropped: "Odrzucone, nic nie wysłano", failed: w.error || "Nie udało się wysłać" }[w.state] || "";
+  const foot = el("div", "kx-evfoot", `<span class="kx-state${w.state === "failed" ? " kx-err" : ""}">${esc(state)}</span>`);
+  const act = (label, name, ghost) => {
+    const b = el("button", `btn${ghost ? " ghost" : ""}`, label);
+    b.type = "button";
+    b.addEventListener("click", async () => {
+      if (card.classList.contains("kx-busy")) return;
+      const text = field ? field.value.trim() : w.text;
+      if (name === "send" && !text) return;
+      card.classList.add("kx-busy");
+      foot.querySelector(".kx-state").textContent = name === "send" ? "Wysyłam" : "";
+      let fresh = w;
+      try { fresh = (await ctx.post("/api/whatsapp/act", { msg: m.id, act: name, text })).wa || w; } catch (err) { fresh = { ...w, to, text, state: "failed", error: "Nie udało się połączyć z serwerem" }; }
+      if (!card.isConnected) return;
+      const next = waCard({ ...m, text: fresh.text, data: { ...m.data, wa: fresh } }, ctx);
+      if (card.dataset.id) next.dataset.id = card.dataset.id;
+      card.replaceWith(next);
+    });
+    foot.append(b);
+  };
+  if (open) { act("Odrzuć", "drop", true); act(w.state === "failed" ? "Spróbuj ponownie" : to.length > 1 ? `Wyślij do ${to.length}` : "Wyślij", "send", false); }
+  card.append(foot);
+  return card;
+}
+
+const TERM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="3.5"/><path d="M8 10l2.6 2L8 14M13 14.5h3"/></svg>';
+
+function codeCard(m) {
+  const c = m.data.code, card = el("div", "card kx kx-wa kx-code");
+  card.dataset.state = c.state;
+  card.append(el("div", "kx-head", `${TERM}<span>Claude Code</span><em>do sesji: ${esc(c.title)}</em>`));
+  const bubble = el("div", "kx-bubble");
+  bubble.append(el("div", "kx-text", chatMarkup(m.text)));
+  card.append(bubble);
+  const state = { queued: "Przekazane, ruszy po bieżącej turze", working: "Przekazane, ruszy po bieżącej turze", running: "Sesja pracuje", done: `Sesja skończyła${c.minutes ? ` po ${c.minutes} min` : ""}` }[c.state] || "Przekazane";
+  card.append(el("div", "kx-evfoot", `${c.state === "running" ? '<i class="kx-dot" aria-hidden="true"></i>' : ""}<span class="kx-state">${esc(state)} · ${esc(c.project)}</span>`));
+  return card;
+}
+
+const TOOL_NAMES = { Bash: "polecenie w terminalu", Edit: "zmianę pliku", Write: "zapis pliku", NotebookEdit: "zmianę notatnika", WebFetch: "pobranie strony", WebSearch: "szukanie w sieci", Read: "odczyt pliku" };
+
+function askCard(m, ctx) {
+  const a = m.data.ask, card = el("div", "card kx kx-wa kx-ask"), question = a.kind === "question", open = a.state === "open";
+  card.dataset.state = a.state;
+  card.append(el("div", "kx-head", `${TERM}<span>Claude Code</span><em>sesja: ${esc(a.title)}</em>`));
+  const bubble = el("div", "kx-bubble"), picked = new Map();
+  let submit = null;
+  const finish = async (body) => {
+    if (card.classList.contains("kx-busy")) return;
+    card.classList.add("kx-busy");
+    let fresh = a;
+    try { fresh = (await ctx.post("/api/code/act", { msg: m.id, ...body })).ask || a; } catch (err) { fresh = { ...a, state: "gone", why: "Nie udało się połączyć z serwerem" }; }
+    if (!card.isConnected) return;
+    const next = askCard({ ...m, data: { ...m.data, ask: fresh } }, ctx);
+    if (card.dataset.id) next.dataset.id = card.dataset.id;
+    card.replaceWith(next);
+  };
+  if (question) {
+    const alone = a.questions.length === 1 && !a.questions[0].multi;
+    for (const q of a.questions) {
+      const box = el("div", "kx-q", `${q.header ? `<b>${esc(q.header)}</b>` : ""}<span>${esc(q.question)}</span>`);
+      const list = el("div", "kx-opts");
+      for (const o of q.options) {
+        const b = el("button", "kx-opt", `<strong>${esc(o.label)}</strong>${o.description ? `<small>${esc(o.description)}</small>` : ""}`);
+        b.type = "button";
+        b.disabled = !open;
+        b.addEventListener("click", () => {
+          const now = new Set(picked.get(q.question) || []);
+          if (q.multi) { if (now.has(o.label)) now.delete(o.label); else now.add(o.label); } else { now.clear(); now.add(o.label); }
+          picked.set(q.question, now);
+          for (const other of list.children) other.classList.toggle("on", now.has(other.firstChild.textContent));
+          if (alone) return finish({ act: "answer", answers: { [q.question]: o.label } });
+          if (submit) submit.disabled = !a.questions.every((x) => picked.get(x.question)?.size);
+        });
+        list.append(b);
+      }
+      box.append(list);
+      bubble.append(box);
+    }
+    if (open && !alone) {
+      submit = el("button", "btn", "Wyślij odpowiedź");
+      submit.type = "button";
+      submit.disabled = true;
+      submit.addEventListener("click", () => finish({ act: "answer", answers: Object.fromEntries(a.questions.map((q) => [q.question, [...(picked.get(q.question) || [])].join(", ")])) }));
+    }
+  } else {
+    bubble.append(el("div", "kx-lead", `Prosi o zgodę na ${esc(TOOL_NAMES[a.tool] || a.tool)}${a.agent ? " (pomocniczy agent)" : ""}`));
+    bubble.append(el("pre", "kx-cmd", esc(a.summary)));
+  }
+  card.append(bubble);
+  const time = a.at ? hm.format(a.at) : "";
+  const gone = a.why === "local" ? "Rozstrzygnięte przy Macu" : a.why === "aborted" ? "Nieaktualne, sesja poszła dalej" : a.why || "Nieaktualne";
+  const state = { open: question ? "Wybierz albo odpisz własnymi słowami" : "Stuknij albo napisz „pozwól”", allowed: `Pozwolono${time ? ` o ${time}` : ""}`, denied: `Odmówiono${time ? ` o ${time}` : ""}`, answered: `Odpowiedź: ${a.reply || "wysłana"}`, gone }[a.state] || "";
+  const foot = el("div", "kx-evfoot", `<span class="kx-state">${esc(state)} · ${esc(a.project)}</span>`);
+  if (open && !question) {
+    for (const [label, act, ghost] of [["Odmów", "deny", true], ["Pozwól", "allow", false]]) {
+      const b = el("button", `btn${ghost ? " ghost" : ""}`, label);
+      b.type = "button";
+      b.addEventListener("click", () => finish({ act }));
+      foot.append(b);
+    }
+  }
+  if (submit) foot.append(submit);
+  card.append(foot);
+  return card;
+}
+
+const POT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 10.5h14v4.5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zM3 10.5h18M9 7c0-1 1-1.2 1-2.2M13.5 7c0-1 1-1.2 1-2.2"/></svg>';
+
+function recipeCard(m, ctx) {
+  const r = m.data.recipe, card = el("div", "card kx kx-wa kx-recipe");
+  card.append(el("div", "kx-head", `${POT}<span>Przepis</span><em>${esc([r.servings, r.time].filter(Boolean).join(" · "))}</em>`));
+  card.append(el("h3", "kx-rtitle", esc(r.title)));
+  const list = el("div", "kx-ings");
+  for (const x of r.ingredients) {
+    const b = el("button", "kx-ing", `<i aria-hidden="true"></i><span>${x.amount ? `<b>${esc(x.amount)}</b> ` : ""}${esc(x.item)}</span>`);
+    b.type = "button";
+    b.setAttribute("aria-pressed", "false");
+    b.addEventListener("click", () => b.setAttribute("aria-pressed", String(b.classList.toggle("on"))));
+    list.append(b);
+  }
+  card.append(list);
+  const steps = el("ol", "kx-steps");
+  for (const step of r.steps) steps.append(el("li", "", esc(step)));
+  card.append(steps);
+  if (r.source) {
+    const foot = el("div", "kx-evfoot", '<span class="kx-state">Stuknij składnik, żeby go odhaczyć</span>'), b = el("button", "btn ghost", "Źródło");
+    b.type = "button";
+    b.addEventListener("click", () => ctx.open(r.source));
+    foot.append(b);
+    card.append(foot);
+  }
+  return card;
+}
+
+function skillCard(m, ctx) {
+  const k = m.data.skill, card = el("div", "card kx kx-wa kx-skill"), open = k.state === "draft" || k.state === "failed";
+  card.dataset.state = k.state;
+  card.append(el("div", "kx-head", `${TERM}<span>Skill dla Claude</span><em>/${esc(k.name)}</em>`));
+  const bubble = el("div", "kx-bubble");
+  bubble.append(el("div", "kx-text", esc(k.description)), el("pre", "kx-cmd", esc(k.body)));
+  card.append(bubble);
+  const time = k.at ? hm.format(k.at) : "";
+  const state = { draft: "Stuknij Zainstaluj albo napisz „zainstaluj”", installed: `Zainstalowany na Macu${time ? ` o ${time}` : ""}`, dropped: "Odrzucony, nic nie zainstalowano", failed: k.why || "Nie udało się zainstalować" }[k.state] || "";
+  const foot = el("div", "kx-evfoot", `<span class="kx-state${k.state === "failed" ? " kx-err" : ""}">${esc(state)}</span>`);
+  const act = (label, name, ghost) => {
+    const b = el("button", `btn${ghost ? " ghost" : ""}`, label);
+    b.type = "button";
+    b.addEventListener("click", async () => {
+      if (card.classList.contains("kx-busy")) return;
+      card.classList.add("kx-busy");
+      let fresh = k;
+      try { fresh = (await ctx.post("/api/skill/act", { msg: m.id, act: name })).skill || k; } catch (err) { fresh = { ...k, state: "failed", why: "Nie udało się połączyć z serwerem" }; }
+      if (!card.isConnected) return;
+      const next = skillCard({ ...m, data: { ...m.data, skill: fresh } }, ctx);
+      if (card.dataset.id) next.dataset.id = card.dataset.id;
+      card.replaceWith(next);
+    });
+    foot.append(b);
+  };
+  if (open) { act("Odrzuć", "drop", true); act(k.state === "failed" ? "Spróbuj ponownie" : "Zainstaluj", "install", false); }
+  card.append(foot);
+  return card;
+}
+
+export function card(m, ctx) {
+  try {
+    if (m.kind === "recipe" && m.data?.recipe) return recipeCard(m, ctx);
+    if (m.kind === "skill" && m.data?.skill) return skillCard(m, ctx);
+    if (m.kind === "wa" && m.data?.wa) return waCard(m, ctx);
+    if (m.kind === "code" && m.data?.code) return codeCard(m);
+    if (m.kind === "ask" && m.data?.ask) return askCard(m, ctx);
+    if (m.kind === "agenda" && m.data?.agenda) return agenda(m);
+    if (m.kind === "event" && m.data?.event) return eventCard(m, ctx);
+    if (m.kind === "videos" && m.data?.videos?.length) return videos(m);
+    if (m.kind === "title" && m.data?.title) return film(m);
+    if (m.kind === "titles" && m.data?.titles?.length) return shelf(m, ctx);
+    if (m.kind === "image" && m.data?.image) return picture(m, ctx);
+  } catch (e) {
+    console.error("card", e);
+  }
+  return null;
+}
