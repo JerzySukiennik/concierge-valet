@@ -1,6 +1,6 @@
 /* Concierge Valet for Mac: desktop client for the same thread, with a sidebar, an inspector, keyboard shortcuts and a native shell bridge. */
 import { TYPES, SWATCHES, defaults, mount, watch, look, poke, setState } from "../avatar.js";
-import { CARD_KINDS, SIGNS, agendaNode, card as connectorCard, openImage, thumb } from "../cards.js";
+import { CARD_KINDS, SIGNS, agendaNode, card as connectorCard, openImage, pickFile, thumb, trayNode } from "../cards.js";
 
 const V = window.VALET || {};
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname) && !V.api;
@@ -206,8 +206,8 @@ function nodes(m) {
   copy.dataset.copy = m.id;
   meta.append(copy);
   line.append(bubble, meta);
-  out.push(line);
-  for (const f of m.data?.files || []) out.push(fileNode(f));
+  if (m.who !== "me" || m.text || !m.data?.files?.length) out.push(line);
+  for (const f of m.data?.files || []) { const c = fileNode(f); if (m.who === "me") c.classList.add("mine"); out.push(c); }
   if (m.who === "agent" && m.kind && !KNOWN_KINDS.includes(m.kind)) {
     const note = el("div", "sys", "Ta wiadomość ma kartę, której ta wersja aplikacji jeszcze nie zna. ");
     const b = el("button", "btn ghost", "Odśwież");
@@ -248,11 +248,14 @@ function addMsg(m, live = true) {
     const i = S.pending.findIndex((p) => p.text === m.text);
     if (i >= 0) {
       const item = S.pending.splice(i, 1)[0], bubble = item.line.querySelector(".msg");
-      bubble.classList.remove("pending");
-      bubble.dataset.id = m.id;
-      item.line.querySelector(".meta").firstChild.textContent = clock.format(new Date(m.ts));
-      item.line.querySelector("[data-copy]").dataset.copy = m.id;
-      return;
+      if (!m.data?.files?.length) {
+        bubble.classList.remove("pending");
+        bubble.dataset.id = m.id;
+        item.line.querySelector(".meta").firstChild.textContent = clock.format(new Date(m.ts));
+        item.line.querySelector("[data-copy]").dataset.copy = m.id;
+        return;
+      }
+      item.line.remove();
     }
   }
   dayBreak(m.ts);
@@ -521,8 +524,9 @@ async function openFile(id, from = null) {
 }
 
 async function send() {
-  const text = input.value.trim();
-  if (!text) return;
+  const text = input.value.trim(), sending = picks.splice(0);
+  if (!text && !sending.length) return;
+  paintTray();
   input.value = "";
   grow();
   clearTimeout(listenTimer);
@@ -531,7 +535,7 @@ async function send() {
   paintStatus();
   dayBreak(Date.now());
   const line = el("div", "line me"), bubble = el("div", "msg me pending"), meta = el("span", "meta", esc(clock.format(new Date())));
-  bubble.textContent = text;
+  bubble.textContent = text || (sending.length === 1 ? "Wysyłam plik" : `Wysyłam pliki: ${sending.length}`);
   const copy = el("button", "", "Kopiuj");
   copy.dataset.copy = "";
   meta.append(copy);
@@ -542,21 +546,41 @@ async function send() {
   S.pending.push(item);
   toBottom(true);
   try {
-    await api("/api/message", { text });
+    const files = [];
+    for (const p of sending) files.push({ ...(await api("/api/upload", { name: p.name, mime: p.mime, data: p.data, w: p.w, h: p.h })).file, w: p.w, h: p.h });
+    await api("/api/message", { text, files });
     setTimeout(() => { if (S.pending.includes(item)) sync(); }, 1500);
   } catch (e) {
     line.remove();
     S.pending = S.pending.filter((p) => p !== item);
     input.value = text;
-    grow();
+    picks.push(...sending);
+    paintTray();
     thread.insertBefore(el("div", "sys err", "Nie udało się wysłać. Sprawdź połączenie i spróbuj jeszcze raz."), typingNode);
   }
 }
 
+const picks = [];
+
 function grow() {
   input.style.height = "auto";
   input.style.height = `${Math.min(200, Math.max(35, input.scrollHeight))}px`;
-  $("send").disabled = !input.value.trim();
+  $("send").disabled = !input.value.trim() && !picks.length;
+}
+
+function paintTray() {
+  const tray = $("tray");
+  tray.replaceChildren(...trayNode(picks, paintTray));
+  tray.hidden = !picks.length;
+  grow();
+}
+
+async function addPicks(list) {
+  for (const file of [...list].slice(0, 6 - picks.length)) {
+    try { picks.push(await pickFile(file)); } catch (e) { thread.insertBefore(el("div", "sys err", e.message === "big" ? "Ten plik jest za duży, limit to 12 MB." : "Nie udało się dodać tego pliku."), typingNode); }
+  }
+  paintTray();
+  input.focus();
 }
 
 async function sync() {
@@ -811,6 +835,12 @@ input.addEventListener("input", () => {
   listenTimer = setTimeout(() => { if (local === "listening") { local = ""; look(puck, 0, 0); paintStatus(); } }, 1500);
 });
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+$("attach").addEventListener("click", () => $("pick").click());
+$("pick").addEventListener("change", (e) => { addPicks(e.target.files).then(() => { e.target.value = ""; }); });
+input.addEventListener("paste", (e) => { const files = [...(e.clipboardData?.files || [])]; if (files.length) { e.preventDefault(); addPicks(files); } });
+window.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { e.preventDefault(); $("composer").classList.add("drop"); } });
+window.addEventListener("dragleave", (e) => { if (!e.relatedTarget) $("composer").classList.remove("drop"); });
+window.addEventListener("drop", (e) => { $("composer").classList.remove("drop"); const files = [...(e.dataTransfer?.files || [])]; if (files.length) { e.preventDefault(); addPicks(files); } });
 scroller.addEventListener("scroll", paintJump, { passive: true });
 
 window.addEventListener("keydown", (e) => {

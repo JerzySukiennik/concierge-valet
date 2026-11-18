@@ -12,6 +12,9 @@ const PIXELS = ["..1111..", ".114411.", "11111111", ".22..22.", ".22..22.", "...
 const MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"];
 const AVATARS = ["orbita", "buzka", "piksel"];
 const CHUNK = 1000000;
+const FILES = "SELECT * FROM files WHERE task IS NULL OR task >= 0 ORDER BY ts DESC LIMIT 60";
+const UPLOADS = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "application/pdf": "pdf", "text/plain": "txt", "text/markdown": "md", "text/csv": "csv" };
+const b64 = (bytes) => { let out = ""; for (let i = 0; i < bytes.length; i += 32768) out += String.fromCharCode(...bytes.subarray(i, i + 32768)); return btoa(out); };
 const OUTSIDE = /^(whatsapp_read|whatsapp_chats|youtube_search|show_title|show_titles)$/;
 const PERMIT = /(^|[^\p{L}])(tak|pozw[oó]l|pozwalam|zezw[oó]l|zezwalam|ok|okej|oki|dawaj|jasne|[sś]mia[lł]o|potwierdzam|zgoda|pewnie|niech|dobra|yes|allow)([^\p{L}]|$)/iu;
 const CARDS = { ask: " (karta: sesja Claude Code czeka na decyzję)", code: " (prompt przekazany do sesji Claude Code)", task: " (rozpoczęte zadanie w tle)", sky: " (karta pogody)", brief: " (brief)", remind: " (przypomnienie)", wa: " (karta wiadomości WhatsApp do zatwierdzenia)", agenda: " (karta kalendarza)", event: " (karta wydarzenia w kalendarzu)", videos: " (karta z filmami z YouTube)", title: " (karta filmu lub serialu)", titles: " (karta z plakatami tytułów)", image: " (wygenerowany obrazek)" };
@@ -163,7 +166,7 @@ export class Valet extends DurableObject {
       settings: this.settings(),
       msgs: this.msgs(),
       tasks: this.rows("SELECT id, ts, updated, title, kind, format, agent, status, step, usd FROM tasks ORDER BY id DESC LIMIT 40"),
-      files: this.rows("SELECT * FROM files ORDER BY ts DESC LIMIT 60"),
+      files: this.rows(FILES),
       sched: this.rows("SELECT * FROM sched ORDER BY due"),
       facts: this.rows("SELECT * FROM facts ORDER BY id"),
       spend: this.spend(),
@@ -200,10 +203,28 @@ export class Valet extends DurableObject {
         const e = Date.now() + 60000;
         return json({ ticket: `${e}.${await sign(this.env.ACCESS_TOKEN, `ws|${e}`)}` });
       }
+      case "POST /api/upload": {
+        const mime = String(body.mime || "").toLowerCase(), ext = UPLOADS[mime];
+        if (!ext) return json({ error: "type", hint: "Ten rodzaj pliku nie jest jeszcze obsługiwany." }, 415);
+        let bytes;
+        try { bytes = Uint8Array.from(atob(String(body.data || "")), (c) => c.charCodeAt(0)); } catch (e) { return json({ error: "data" }, 400); }
+        if (!bytes.length || bytes.length > 12e6) return json({ error: "size", hint: "Plik jest pusty albo większy niż 12 MB." }, 413);
+        const id = `up_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`, now = Date.now();
+        const base = String(body.name || "").replace(/[\\/:*?"<>|\n]/g, " ").replace(/\.\w+$/, "").trim().slice(0, 60) || (mime.startsWith("image/") ? "Zdjęcie" : "Plik");
+        const file = { id, ts: now, name: `${base}.${ext}`, mime, size: bytes.length, ...(+body.w > 0 && +body.h > 0 ? { w: Math.round(+body.w), h: Math.round(+body.h) } : {}) };
+        this.saveBlob(id, bytes);
+        this.sql.exec("INSERT INTO files (id, ts, name, mime, size, task) VALUES (?, ?, ?, ?, ?, -1)", id, now, file.name, mime, file.size);
+        return json({ file });
+      }
       case "POST /api/message": {
         const text = String(body.text || "").trim().slice(0, 8000);
-        if (!text) return json({ error: "empty" }, 400);
-        const m = this.post({ who: "me", text });
+        const files = [];
+        for (const f of (Array.isArray(body.files) ? body.files : []).slice(0, 6)) {
+          const row = this.rows("SELECT id, ts, name, mime, size FROM files WHERE id = ? AND task = -1", String(f?.id || f || ""))[0];
+          if (row) files.push({ ...row, ...(+f?.w > 0 && +f?.h > 0 ? { w: +f.w, h: +f.h } : {}) });
+        }
+        if (!text && !files.length) return json({ error: "empty" }, 400);
+        const m = this.post({ who: "me", text, data: files.length ? { files } : null });
         await this.ctx.storage.setAlarm(Date.now());
         return json({ id: m.id });
       }
@@ -656,6 +677,25 @@ export class Valet extends DurableObject {
     await this.rearm();
   }
 
+  attachments(fresh) {
+    const recent = this.rows("SELECT * FROM msgs WHERE who = 'me' AND ts > ? AND id < ? AND data LIKE '%\"files\"%' ORDER BY id DESC LIMIT 3", Date.now() - 20 * 60000, fresh[0].id).reverse().map((m) => ({ ...m, data: JSON.parse(m.data) }));
+    const out = [];
+    let total = 0;
+    for (const m of [...recent, ...fresh]) {
+      for (const f of m.data?.files || []) {
+        if (!String(f.id).startsWith("up_") || total + f.size > 18e6) continue;
+        const bytes = this.readBlob(f.id);
+        if (!bytes) continue;
+        total += bytes.length;
+        const label = `Attachment "${f.name}" from his message at ${hm(m.ts)}${m.id < fresh[0].id ? " (sent earlier, kept for reference)" : ""}:`;
+        if (f.mime.startsWith("image/")) out.push({ type: "text", text: label }, { type: "image", source: { type: "base64", media_type: f.mime, data: b64(bytes) } });
+        else if (f.mime === "application/pdf") out.push({ type: "text", text: label }, { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64(bytes) } });
+        else out.push({ type: "text", text: `${label}\n${new TextDecoder().decode(bytes).slice(0, 60000)}` });
+      }
+    }
+    return out.slice(-16);
+  }
+
   context(fresh, cursor, events = []) {
     const s = this.settings(), owner = s.owner;
     const line = (m) => {
@@ -682,7 +722,7 @@ export class Valet extends DurableObject {
       spend.today >= spend.limit ? "<budget>The daily API budget is used up. You are running on the small model, and new background tasks are refused until tomorrow. Tell him if he asks for one.</budget>" : "",
       `<thread>\n${prior.length ? prior.map(line).join("\n") : "(this is the start of the thread)"}\n</thread>`,
       events.length ? `<events>\nThese arrived on their own. He has not seen them and did not ask about them.\n\n${events.map((e) => e.replace(/^\[ask [^\]]+\] /, "")).join("\n\n")}\n\nDecide what he needs. For WhatsApp messages: if something matters to him (a test, homework, a change of plans, something to bring or pay, a question addressed to him or one he can clearly answer), tell him in one or two sentences, naming the chat. When a reply from him would help, also prepare it with whatsapp_draft so he only has to approve it, and read the calendar first when the answer depends on dates. For a Claude Code session that finished a turn: tell him in one to three sentences what the session did or what it is asking, naming the session; pass a question on as a question and add what you would check or decide in his place. For a Claude Code session that waits for his permission or answer: the card already shows what it asks, so do not repeat it; say in one or two plain sentences what the command or the choice means for a person who does not read code and what you would watch out for, and if it is plainly routine and safe say just that. Never answer a session yourself and never call code_send or code_answer in this turn. If nothing here is worth interrupting him, answer with exactly SKIP.\n</events>` : "",
-      fresh.length ? `<new_messages>\n${fresh.map((m) => `[${hm(m.ts)}] ${owner}: ${m.text}`).join("\n")}\n</new_messages>` : "<new_messages>\n(none: this turn was started by the events above)\n</new_messages>",
+      fresh.length ? `<new_messages>\n${fresh.map((m) => `[${hm(m.ts)}] ${owner}: ${m.text || "(no text)"}${m.data?.files?.length ? ` [attached: ${m.data.files.map((f) => f.name).join(", ")}]` : ""}`).join("\n")}\n</new_messages>` : "<new_messages>\n(none: this turn was started by the events above)\n</new_messages>",
     ].filter(Boolean).join("\n\n");
   }
 
@@ -755,7 +795,7 @@ export class Valet extends DurableObject {
 
   async chatTurn() {
     const cursor = this.get("cursor", 0);
-    const fresh = this.rows("SELECT * FROM msgs WHERE id > ? AND who = 'me' ORDER BY id", cursor);
+    const fresh = this.rows("SELECT * FROM msgs WHERE id > ? AND who = 'me' ORDER BY id", cursor).map((m) => ({ ...m, data: m.data ? JSON.parse(m.data) : null }));
     const events = fresh.length ? [] : this.get("events", []);
     if (!fresh.length && !events.length) return;
     const origin = fresh.length ? fresh[fresh.length - 1].id : null;
@@ -764,7 +804,8 @@ export class Valet extends DurableObject {
     if (fresh.length) this.status("thinking", "Myśli", true);
     this.drawn = 0;
     this.turn = { first: fresh.length ? fresh[0].id : 0, text: fresh.map((m) => m.text).join("\n") };
-    const messages = [{ role: "user", content: this.context(fresh, cursor, events) }];
+    const seen = fresh.length ? this.attachments(fresh) : [];
+    const messages = [{ role: "user", content: seen.length ? [...seen, { type: "text", text: this.context(fresh, cursor, events) }] : this.context(fresh, cursor, events) }];
     let shown = "", reply = "", sources = [];
     for (let i = 0; i < 8; i++) {
       const res = await ask(this.env, {
@@ -916,7 +957,7 @@ export class Valet extends DurableObject {
       this.sql.exec("INSERT INTO files (id, ts, name, mime, size, task) VALUES (?, ?, ?, ?, ?, NULL)", id, Date.now(), file.name, file.mime, file.size);
       this.addSpend(made.usd);
       this.post({ who: "agent", agent: "atelier", kind: "image", text: label, data: { image: { ...file, w: made.w, h: made.h }, note: `Prompt: ${String(input.prompt).slice(0, 500)}` } });
-      this.broadcast({ t: "files", files: this.rows("SELECT * FROM files ORDER BY ts DESC LIMIT 60") });
+      this.broadcast({ t: "files", files: this.rows(FILES) });
       return `Image posted into the thread and saved as "${file.name}" (${made.w}x${made.h}, cost $${made.usd.toFixed(3)}). You cannot see it, so do not describe details you did not ask for.`;
     }
     return `Unknown tool ${name}.`;
@@ -1198,7 +1239,7 @@ export class Valet extends DurableObject {
       if (files.length) data.files = files;
       if (e.sources?.length) data.sources = e.sources;
       const m = this.post({ who: "agent", agent, text: e.text, data: Object.keys(data).length ? data : null, reply_to: cur.origin });
-      this.broadcast({ t: "files", files: this.rows("SELECT * FROM files ORDER BY ts DESC LIMIT 60") });
+      this.broadcast({ t: "files", files: this.rows(FILES) });
       this.status("happy", "Gotowe");
       this.live = null;
       await this.notify(s.agents[agent]?.name || "Valet", m.text, true);

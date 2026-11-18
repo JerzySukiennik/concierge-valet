@@ -28,7 +28,7 @@ async function file(req, env, url) {
   const [, , id, name] = url.pathname.split("/");
   const e = +url.searchParams.get("e"), mime = url.searchParams.get("m") || "application/octet-stream";
   if (!id || !e || e < Date.now() || !same(url.searchParams.get("s"), await sign(env.ACCESS_TOKEN, `${id}|${e}|${mime}`))) return new Response("Ten link wygasł. Otwórz plik jeszcze raz z aplikacji.", { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } });
-  const own = id.startsWith("img_");
+  const own = /^(img|up)_/.test(id);
   const res = own ? await env.VALET.get(env.VALET.idFromName("main")).fetch(`https://valet/internal/blob?id=${encodeURIComponent(id)}`) : await client(env).files.download(id);
   if (own && !res.ok) return new Response("Nie ma już takiego pliku.", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
   const headers = { "content-type": mime, "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(decodeURIComponent(name || "plik"))}`, "cache-control": own ? "private, max-age=21600, immutable" : "private, max-age=600", "x-content-type-options": "nosniff" };

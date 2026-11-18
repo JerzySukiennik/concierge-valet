@@ -2,7 +2,7 @@
 import { TYPES, SWATCHES, defaults, mount, watch, look, poke, setState } from "./avatar.js";
 import { RM, anim, stagger, crossText, pressFeedback } from "./motion.js";
 import { createSheet, makePage } from "./sheet.js";
-import { CARD_KINDS, SIGNS, agendaNode, card as connectorCard, openImage, thumb } from "./cards.js";
+import { CARD_KINDS, SIGNS, agendaNode, card as connectorCard, openImage, pickFile, thumb, trayNode } from "./cards.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 const devPort = /^\d{4,5}$/.test(new URLSearchParams(location.search).get("api") || "") ? new URLSearchParams(location.search).get("api") : "8790";
@@ -239,8 +239,8 @@ function nodes(m, join) {
   else bubble.insertAdjacentHTML("beforeend", md(m.text));
   bubble.append(stampNode(m.ts));
   bubble.dataset.id = m.id;
-  out.push(bubble);
-  for (const f of m.data?.files || []) { const c = fileNode(f); c.classList.add("att"); out.push(c); }
+  if (m.who !== "me" || m.text || !m.data?.files?.length) out.push(bubble);
+  for (const f of m.data?.files || []) { const c = fileNode(f); c.classList.add("att"); if (m.who === "me") c.classList.add("mine"); out.push(c); }
   if (m.who === "agent" && m.kind && !KNOWN_KINDS.includes(m.kind)) {
     const note = el("div", "sys att", "Ta wiadomość ma kartę, której ta wersja apki jeszcze nie zna. ");
     const b = el("button", "btn ghost small", "Odśwież apkę");
@@ -304,10 +304,15 @@ function addMsg(m, animate = true) {
     const i = S.pending.findIndex((p) => p.text === m.text);
     if (i >= 0) {
       const p = S.pending.splice(i, 1)[0];
-      p.node.classList.remove("pending");
-      p.node.dataset.id = m.id;
-      S.lastTs = m.ts;
-      return;
+      if (!m.data?.files?.length) {
+        p.node.classList.remove("pending");
+        p.node.dataset.id = m.id;
+        S.lastTs = m.ts;
+        return;
+      }
+      p.node.remove();
+      S.tail = null;
+      animate = false;
     }
   }
   $("thread-empty")?.remove();
@@ -661,12 +666,28 @@ function grow() {
     if (stick && S.tab === "chat") toBottom();
   }
   input.style.overflowY = full > 132 ? "auto" : "hidden";
-  $("send").disabled = !input.value.trim();
+  $("send").disabled = !input.value.trim() && !picks.length;
+}
+
+const picks = [];
+function paintTray() {
+  const tray = $("tray");
+  tray.replaceChildren(...trayNode(picks, paintTray));
+  tray.hidden = !picks.length;
+  grow();
+}
+
+async function addPicks(list) {
+  for (const file of [...list].slice(0, 6 - picks.length)) {
+    try { picks.push(await pickFile(file)); } catch (e) { toast(e.message === "big" ? "Ten plik jest za duży, limit to 12 MB" : "Nie udało się dodać tego pliku"); }
+  }
+  paintTray();
 }
 
 async function send() {
-  const text = input.value.trim();
-  if (!text) return;
+  const text = input.value.trim(), sending = picks.splice(0);
+  if (!text && !sending.length) return;
+  paintTray();
   input.value = "";
   grow();
   clearTimeout(listenTimer);
@@ -679,7 +700,7 @@ async function send() {
   if (sep) place(sep);
   const join = S.tail?.from === "me" && now - S.tail.ts < 300000;
   const node = el("div", `msg me pending${join ? " join" : ""}`);
-  node.textContent = text;
+  node.textContent = text || (sending.length === 1 ? "Wysyłam plik" : `Wysyłam pliki: ${sending.length}`);
   node.append(stampNode(now));
   place(node);
   S.tail = { from: "me", ts: now };
@@ -689,7 +710,9 @@ async function send() {
   const r = node.getBoundingClientRect(), f = $("cbox").getBoundingClientRect();
   anim(node, [{ opacity: 0.2, transform: `translate3d(0, ${Math.max(0, f.top - r.top + 4).toFixed(1)}px, 0) scale(.92)` }, { opacity: 1, transform: "none" }], { ease: "bounce" });
   try {
-    await api("/api/message", { text });
+    const files = [];
+    for (const p of sending) files.push({ ...(await api("/api/upload", { name: p.name, mime: p.mime, data: p.data, w: p.w, h: p.h })).file, w: p.w, h: p.h });
+    await api("/api/message", { text, files });
     setTimeout(() => { if (S.pending.includes(item)) sync().catch(() => {}); }, 1500);
   } catch (e) {
     S.pending = S.pending.filter((p) => p !== item);
@@ -697,7 +720,8 @@ async function send() {
     if (a) a.onfinish = () => node.remove(); else node.remove();
     S.tail = null;
     input.value = text;
-    grow();
+    picks.push(...sending);
+    paintTray();
     const err = el("div", "sys err", "Nie udało się wysłać. Sprawdź połączenie i spróbuj jeszcze raz.");
     place(err);
     enter(err, false);
@@ -1537,6 +1561,9 @@ input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && matchMedia("(pointer: fine)").matches) { e.preventDefault(); send(); }
 });
 $("send").addEventListener("pointerdown", (e) => e.preventDefault());
+$("attach").addEventListener("click", () => $("pick").click());
+$("pick").addEventListener("change", (e) => { addPicks(e.target.files).then(() => { e.target.value = ""; }); });
+input.addEventListener("paste", (e) => { const files = [...(e.clipboardData?.files || [])]; if (files.length) { e.preventDefault(); addPicks(files); } });
 chat.addEventListener("scroll", () => { if (!scrollRaf) scrollRaf = requestAnimationFrame(onChatScroll); }, { passive: true });
 
 $("pair-form").addEventListener("submit", async (e) => {

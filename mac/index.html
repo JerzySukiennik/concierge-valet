@@ -43,11 +43,14 @@
         <div class="scroll" id="chat-scroll"><div class="thread" id="thread"></div></div>
         <button class="jump" id="jump" hidden></button>
         <form class="composer" id="composer">
+          <div class="tray" id="tray" hidden></div>
           <div class="field">
+            <button type="button" class="attach" id="attach" aria-label="Dodaj zdjęcie albo plik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg></button>
+            <input type="file" id="pick" accept="image/*,application/pdf,text/plain,text/markdown,text/csv" multiple hidden>
             <textarea id="input" rows="1" placeholder="Napisz wiadomość" aria-label="Wiadomość" autocomplete="off"></textarea>
             <button class="send" id="send" aria-label="Wyślij" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
           </div>
-          <div class="hint">Enter wysyła, Shift i Enter robi nową linię</div>
+          <div class="hint">Enter wysyła, Shift i Enter robi nową linię. Zdjęcie albo plik możesz wkleić lub przeciągnąć.</div>
         </form>
       </div>
       <div class="view" id="view-tasks" hidden><div class="scroll"><div class="page" id="tasks"></div></div></div>

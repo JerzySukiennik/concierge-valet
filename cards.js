@@ -296,6 +296,49 @@ export function chatMarkup(text) {
   return String(text || "").split("\n").map((line) => (line.startsWith("> ") ? `<span class="kx-quote">${inline(line.slice(2))}</span>` : inline(line))).join("<br>");
 }
 
+const toData = (blob) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(",")[1] || ""); r.onerror = reject; r.readAsDataURL(blob); });
+
+export async function pickFile(file) {
+  let blob = file, mime = file.type || (/\.md$/i.test(file.name) ? "text/markdown" : /\.csv$/i.test(file.name) ? "text/csv" : "text/plain"), w = 0, h = 0;
+  if (mime.startsWith("image/") && mime !== "image/gif") {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const scale = Math.min(1, 1568 / Math.max(img.naturalWidth, img.naturalHeight));
+      w = Math.max(1, Math.round(img.naturalWidth * scale));
+      h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.86));
+      mime = "image/jpeg";
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  if (!blob || blob.size > 12e6) throw new Error("big");
+  const data = await toData(blob);
+  return { name: file.name || "Zdjęcie", mime, data, w, h, preview: mime.startsWith("image/") ? `data:${mime};base64,${data}` : "" };
+}
+
+export function trayNode(picks, repaint) {
+  const list = [];
+  for (const p of picks) {
+    const box = el("div", "pick");
+    if (p.preview) { const img = el("img"); img.alt = ""; img.src = p.preview; box.append(img); } else box.textContent = (p.name.split(".").pop() || "plik").slice(0, 4).toUpperCase();
+    const x = el("button", "", '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>');
+    x.type = "button";
+    x.setAttribute("aria-label", `Usuń ${p.name}`);
+    x.addEventListener("click", () => { picks.splice(picks.indexOf(p), 1); repaint(); });
+    box.append(x);
+    list.push(box);
+  }
+  return list;
+}
+
 const grower = typeof ResizeObserver === "function" ? new ResizeObserver((list) => {
   for (const entry of list) {
     const field = entry.target, wide = field.clientWidth;

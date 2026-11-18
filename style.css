@@ -242,7 +242,7 @@ body.behind #app { border-radius: 12px; overflow: hidden; }
 .bottom::before { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 14px; background: linear-gradient(transparent, var(--bg)); pointer-events: none; }
 .composer { padding: 6px 12px 6px; }
 .cbox { position: relative; }
-.cbox textarea { display: block; width: 100%; min-height: 40px; max-height: 132px; height: 40px; resize: none; border-radius: 20px; border: 1px solid var(--field-line); background: var(--field); padding: 8px 46px 8px 15px; line-height: 22px; font-size: 16px; outline: none; overflow-y: hidden; scrollbar-width: none; }
+.cbox textarea { display: block; width: 100%; min-height: 40px; max-height: 132px; height: 40px; resize: none; border-radius: 20px; border: 1px solid var(--field-line); background: var(--field); padding: 8px 46px 8px 44px; line-height: 22px; font-size: 16px; outline: none; overflow-y: hidden; scrollbar-width: none; }
 .cbox textarea:focus { border-color: var(--ghost-line); }
 .cbox textarea::placeholder { color: var(--muted); }
 .cbox .mirror { position: absolute; top: 0; left: 0; height: 0 !important; min-height: 0 !important; visibility: hidden; pointer-events: none; overflow: hidden; }
@@ -254,6 +254,12 @@ body.behind #app { border-radius: 12px; overflow: hidden; }
 .send.down:not(:disabled) { transform: scale(.86); transition: transform .1s ease-out; }
 .send:disabled { cursor: default; }
 .send svg { position: relative; width: 18px; height: 18px; stroke-width: 2.4; }
+.attach { position: absolute; left: 4px; bottom: 4px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); z-index: 1; transition: transform .12s ease-out, color .16s ease; }
+.attach::after { content: ""; position: absolute; inset: -6px; }
+.attach:active { transform: scale(.86); color: var(--fg); }
+.attach svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.tray { display: flex; gap: 8px; padding: 2px 2px 8px; overflow-x: auto; scrollbar-width: none; }
+.tray[hidden] { display: none; }
 .tabs { display: grid; grid-template-columns: repeat(3, 1fr); padding: 2px 14px 6px; position: relative; }
 .tabs .pill { position: absolute; top: 2px; bottom: 6px; left: 14px; width: calc((100% - 28px) / 3); border-radius: 18px; background: var(--soft); transform: translate3d(calc(var(--i, 0) * 100%), 0, 0); transition: transform var(--dur-bounce) var(--ease-bounce); }
 .tabs button { position: relative; height: 52px; color: var(--muted); font: 500 11px/1 var(--font); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; transition: color .2s; }
@@ -384,3 +390,4 @@ input[type="range"]::-moz-range-thumb { width: 28px; height: 28px; border: 0; bo
   .track .bar { animation: wait 1.6s ease-in-out infinite; width: 100%; }
   .skel, #puck.ghost { animation-duration: 2.4s; }
 }
+.file.mine { align-self: flex-end; width: min(88%, 330px); }
