@@ -112,12 +112,24 @@ const CUSTOM = [
   },
   {
     name: "whatsapp_draft",
-    description: "Prepare a WhatsApp message for him to approve: puts a card with the text into the thread. Nothing is sent until he taps send on the card; he can edit the text there. A signature naming you is added automatically, so do not write one.",
+    description: "Prepare a WhatsApp message for him to approve: puts one card with the text into the thread. The same text can go to several chats at once, so use one draft for all of them. Nothing is sent until he taps send on the card or tells you to send in his next message. He can edit the text on the card. A newer draft for the same chat replaces the older one. A signature naming the app is added automatically, so do not write one.",
     strict: true,
     input_schema: obj({
-      chat: { type: "string", description: "Chat or group name the message is for; You for his own chat with himself" },
+      chats: { type: "array", items: { type: "string" }, description: "Chat or group names the message is for; You for his own chat with himself" },
       text: { type: "string", description: "The message exactly as it should be sent, in his voice: short, natural, the way a student writes to classmates or the way he writes to that person. WhatsApp formatting only: *bold*, _italic_, simple lines" },
     }),
+  },
+  {
+    name: "whatsapp_send",
+    description: "Send the WhatsApp messages that are waiting for his approval. Call it only when his new message clearly tells you to send (tak, wyślij, ok and the like) and the card was already in the thread before that message. It refuses in every other case.",
+    strict: true,
+    input_schema: obj({}),
+  },
+  {
+    name: "whatsapp_discard",
+    description: "Throw away the WhatsApp messages that are waiting for his approval, when he says not to send them.",
+    strict: true,
+    input_schema: obj({}),
   },
   {
     name: "youtube_search",

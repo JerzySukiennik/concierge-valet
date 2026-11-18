@@ -298,11 +298,14 @@ export function chatMarkup(text) {
 
 function waCard(m, ctx) {
   const w = m.data.wa, card = el("div", "card kx kx-wa");
+  const to = w.to || [{ chat: w.chat, group: w.group, state: w.state === "sent" ? "sent" : "draft" }];
   card.dataset.state = w.state;
-  card.append(el("div", "kx-head", `${CHAT}<span>WhatsApp</span><em>do: ${esc(w.chat)}${w.group ? " (grupa)" : ""}</em>`));
-  const bubble = el("div", "kx-bubble"), open = w.state === "draft" || w.state === "failed";
+  const names = to.map((r) => esc(r.chat));
+  const whom = names.length > 1 ? `${names.slice(0, -1).join(", ")} i ${names[names.length - 1]}` : `${names[0]}${to[0].group ? " (grupa)" : ""}`;
+  card.append(el("div", "kx-head", `${CHAT}<span>WhatsApp</span><em>do: ${whom}</em>`));
+  const bubble = el("div", "kx-bubble"), open = w.state === "draft" || w.state === "failed", partly = to.some((r) => r.state === "sent");
   let field = null;
-  if (open) {
+  if (open && !partly) {
     field = el("textarea", "kx-field");
     field.value = w.text;
     field.rows = 1;
@@ -315,7 +318,7 @@ function waCard(m, ctx) {
   bubble.append(el("div", "kx-sign", chatMarkup(w.sign)));
   card.append(bubble);
   const time = w.sentAt ? hm.format(w.sentAt) : "";
-  const state = { draft: "Czeka na Twoją zgodę", sending: "Wysyłam przez WhatsApp na Macu", sent: `Wysłane${time ? ` o ${time}` : ""}`, dropped: "Odrzucone, nic nie wysłano", failed: w.error || "Nie udało się wysłać" }[w.state] || "";
+  const state = { draft: "Stuknij Wyślij albo napisz „tak”", sending: "Wysyłam", sent: `Wysłane${time ? ` o ${time}` : ""}`, dropped: "Odrzucone, nic nie wysłano", failed: w.error || "Nie udało się wysłać" }[w.state] || "";
   const foot = el("div", "kx-evfoot", `<span class="kx-state${w.state === "failed" ? " kx-err" : ""}">${esc(state)}</span>`);
   const act = (label, name, ghost) => {
     const b = el("button", `btn${ghost ? " ghost" : ""}`, label);
@@ -325,9 +328,9 @@ function waCard(m, ctx) {
       const text = field ? field.value.trim() : w.text;
       if (name === "send" && !text) return;
       card.classList.add("kx-busy");
-      foot.querySelector(".kx-state").textContent = name === "send" ? "Wysyłam przez WhatsApp na Macu" : "";
+      foot.querySelector(".kx-state").textContent = name === "send" ? "Wysyłam" : "";
       let fresh = w;
-      try { fresh = (await ctx.post("/api/whatsapp/act", { msg: m.id, act: name, text })).wa || w; } catch (err) { fresh = { ...w, text, state: "failed", error: "Nie udało się połączyć z serwerem" }; }
+      try { fresh = (await ctx.post("/api/whatsapp/act", { msg: m.id, act: name, text })).wa || w; } catch (err) { fresh = { ...w, to, text, state: "failed", error: "Nie udało się połączyć z serwerem" }; }
       if (!card.isConnected) return;
       const next = waCard({ ...m, text: fresh.text, data: { ...m.data, wa: fresh } }, ctx);
       if (card.dataset.id) next.dataset.id = card.dataset.id;
@@ -335,7 +338,7 @@ function waCard(m, ctx) {
     });
     foot.append(b);
   };
-  if (open) { act("Odrzuć", "drop", true); act(w.state === "failed" ? "Spróbuj ponownie" : "Wyślij", "send", false); }
+  if (open) { act("Odrzuć", "drop", true); act(w.state === "failed" ? "Spróbuj ponownie" : to.length > 1 ? `Wyślij do ${to.length}` : "Wyślij", "send", false); }
   card.append(foot);
   return card;
 }

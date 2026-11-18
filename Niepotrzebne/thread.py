@@ -32,7 +32,7 @@ def show(d, since=0):
         if data.get("videos"):
             extra += f" videos={len(data['videos'])}"
         if data.get("wa"):
-            extra += f" wa={data['wa']['state']} to={data['wa']['chat']!r}"
+            extra += f" wa={data['wa']['state']} to={[r['chat'] for r in data['wa'].get('to', [])] or data['wa'].get('chat')!r}"
         if isinstance(data.get("title"), dict):
             t = data["title"]
             extra += f" title={t['name']} ({t['year']}) {t['type']} watch={bool(t['watch'])} trailer={t['trailer']}"
