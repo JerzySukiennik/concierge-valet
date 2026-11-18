@@ -451,7 +451,7 @@ export class Valet extends DurableObject {
   }
 
   bridgeCall(tool, input = {}, ms = 25000) {
-    const pilot = tool.startsWith("code."), linked = tool.startsWith("wa.") && this.get("waVia", "app") === "link";
+    const pilot = tool.startsWith("code.") || tool.startsWith("hub."), linked = tool.startsWith("wa.") && this.get("waVia", "app") === "link";
     const ws = this.ctx.getWebSockets(pilot ? "role:code" : linked ? "role:wa" : "role:mac")[0];
     if (!ws) return Promise.reject(new Error(pilot ? "Claude Code on his Mac is out of reach: the Mac is asleep or off, or the pilot service is not running" : linked ? "the WhatsApp link is not connected right now" : "the Mac is not connected: the Concierge Valet app on his Mac has to be running"));
     const id = crypto.randomUUID();
@@ -974,6 +974,7 @@ export class Valet extends DurableObject {
     }
     if (name.startsWith("whatsapp_")) return this.whatsappTool(name, input);
     if (name.startsWith("code_")) return this.codeTool(name, input, origin);
+    if (name.startsWith("mac_")) return this.macTool(name, input, origin);
     if (name === "kaggle_runs") {
       if (!kaggleOn(this.env)) return "Kaggle is not connected.";
       const list = await this.kaggleRuns(6);
@@ -1032,6 +1033,27 @@ export class Valet extends DurableObject {
       return `Image posted into the thread and saved as "${file.name}" (${made.w}x${made.h}, cost $${made.usd.toFixed(3)}). You cannot see it, so do not describe details you did not ask for.`;
     }
     return `Unknown tool ${name}.`;
+  }
+
+  async macTool(name, input, origin) {
+    if (name === "mac_state") {
+      const d = await this.bridgeCall("hub.state", {}, 20000);
+      const m = d.music?.state && d.music.state !== "off" ? `${d.music.player}: ${d.music.state}${d.music.track ? `, "${d.music.track}" by ${d.music.artist}` : ""}` : "no music app open";
+      return `His Mac "${d.host}": battery ${d.battery ?? "?"}% (${d.power || "unknown"}), app in front: ${d.app || "unknown"}, volume ${d.muted ? "muted" : `${d.volume ?? "?"}%`}, free disk ${d.freeGb ?? "?"} GB, up for ${d.upHours} h, last touched ${d.idle >= 0 ? `${Math.round(d.idle / 60)} min ago` : "unknown"}, ${d.sessions} Claude Code session${d.sessions === 1 ? "" : "s"} open, ${m}.`;
+    }
+    if (name === "mac_music") {
+      const d = await this.bridgeCall("hub.music", { action: ["playpause", "next", "previous"].includes(input.action) ? input.action : "status" }, 20000);
+      return d.state === "off" ? "No music app is open on his Mac." : `${d.player} is ${d.state}${d.track ? `: "${d.track}" by ${d.artist}` : ""}.`;
+    }
+    if (name === "mac_files") {
+      const d = await this.bridgeCall("hub.files", { query: String(input.query || "").slice(0, 80), limit: 12 }, 20000);
+      if (!d.files?.length) return `Nothing in his ${d.folder} folder matches.`;
+      const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+      return `Files in his ${d.folder} folder on the Mac, newest first:\n${d.files.map((f) => `- ${f.path} (${size(f.size)}, changed ${isoLocal(f.changed).slice(0, 16).replace("T", " ")})`).join("\n")}\nTo put one into the thread call mac_send_file with its path exactly as listed.`;
+    }
+    const d = await this.bridgeCall("hub.send", { path: String(input.path || "").slice(0, 400) }, 60000);
+    this.post({ who: "agent", agent: "valet", text: `Plik z Maca: ${d.path}`, data: { files: [d.file] }, reply_to: origin });
+    return `The file "${d.path}" is in the thread now as a card he can open. Say so in one short sentence.`;
   }
 
   async kaggleRuns(count = 6) {

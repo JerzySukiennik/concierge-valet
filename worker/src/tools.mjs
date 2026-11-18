@@ -129,6 +129,22 @@ const CUSTOM = [
     description: "Throw away the WhatsApp messages that are waiting for his approval, when he says not to send them.",
     input_schema: obj({}),
   },
+  { name: "mac_state", description: "The state of his Mac right now: battery, the app in front, volume, free disk, when it was last touched, open Claude Code sessions and what is playing. Use it when he asks about his Mac.", input_schema: obj({}) },
+  {
+    name: "mac_music",
+    description: "Control or check music on his Mac (the Music app or Spotify, whichever is open): play or pause, next or previous track, or just what is playing.",
+    input_schema: obj({ action: { type: "string", enum: ["status", "playpause", "next", "previous"], description: "status only reads what is playing" } }),
+  },
+  {
+    name: "mac_files",
+    description: "Find finished files in his Documents/Gzowo Labs folder on the Mac: prints, documents, renders, films, reels, wallpapers. Lists the newest matches with their paths.",
+    input_schema: obj({ query: { type: "string", description: "Words from the project or file name, or empty for the newest files" } }),
+  },
+  {
+    name: "mac_send_file",
+    description: "Put one file from his Documents/Gzowo Labs folder into the thread so he can open it on the phone. Images, PDFs and text files up to 12 MB.",
+    input_schema: obj({ path: { type: "string", description: "The path exactly as mac_files listed it" } }),
+  },
   { name: "kaggle_runs", description: "List his latest notebooks on Kaggle with the status of each run (running, complete, error) and, for a failed one, the end of its log. Use it when he asks about a training, a render or anything else he runs on Kaggle.", input_schema: obj({}) },
   { name: "code_sessions", description: "List the Claude Code sessions that are open right now in the Claude app on his Mac: title, project, whether each is working or idle, and its last message. Use it before you read or prompt a session, and when he asks what Claude is doing.", input_schema: obj({}) },
   {

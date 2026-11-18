@@ -1,13 +1,15 @@
 /* Concierge Valet pilot hub: the meeting point on this Mac between the sessions of the Claude app (the valet-pilot mod talks to it over a private Unix socket) and the cloud agent (over the bridge socket). It lists live sessions, passes the owner's prompts into them and reports finished turns. */
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { createServer } from "node:http";
-import { homedir, hostname } from "node:os";
-import { basename, join } from "node:path";
+import { homedir, hostname, uptime } from "node:os";
+import { basename, extname, join, relative, sep } from "node:path";
 import { execFile } from "node:child_process";
 
 const HOME = process.env.VALET_PILOT_HOME || join(homedir(), ".valet-pilot");
 const API = process.env.VALET_API || "https://concierge-valet-api.kalakasanyt.workers.dev";
 const SOCK = join(HOME, "hub.sock");
+const SHELF = process.env.VALET_PILOT_SHELF || join(homedir(), "Documents", "Gzowo Labs");
+const MIMES = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif", ".pdf": "application/pdf", ".txt": "text/plain", ".md": "text/markdown", ".csv": "text/csv" };
 mkdirSync(HOME, { recursive: true });
 chmodSync(HOME, 0o700);
 const TOKEN = (process.env.VALET_TOKEN || (existsSync(join(HOME, "token")) ? readFileSync(join(HOME, "token"), "utf8") : "")).trim();
@@ -26,6 +28,60 @@ const idleSeconds = () => new Promise((resolve) => {
     resolve(m ? Math.round(+m[1] / 1e9) : -1);
   });
 });
+
+const sh = (file, args, ms = 6000) => new Promise((resolve) => execFile(file, args, { timeout: ms, maxBuffer: 4e6 }, (err, out) => resolve(err ? "" : String(out).trim())));
+const script = (source) => sh("/usr/bin/osascript", ["-e", source], 8000);
+
+async function macState() {
+  const [batt, front, vol, disk] = await Promise.all([
+    sh("/usr/bin/pmset", ["-g", "batt"]),
+    sh("/usr/bin/lsappinfo", ["front"]).then((asn) => (asn ? sh("/usr/bin/lsappinfo", ["info", "-only", "name", asn]) : "")),
+    script('set v to get volume settings\nreturn ((output volume of v) as text) & "|" & ((output muted of v) as text)'),
+    sh("/bin/df", ["-k", "/System/Volumes/Data"]),
+  ]);
+  const b = /(\d+)%;\s*([a-z ]+);/i.exec(batt), free = +(disk.split("\n").pop() || "").trim().split(/\s+/)[3] || 0;
+  const [level, muted] = vol.split("|");
+  return { host: hostname().replace(/\.local$/, ""), battery: b ? +b[1] : null, power: b ? b[2].trim() : "", app: (/="(.+)"/.exec(front) || [])[1] || "", volume: level ? +level : null, muted: muted === "true", freeGb: free ? Math.round(free / 1048576) : null, upHours: Math.round(uptime() / 3600), idle: await idleSeconds(), sessions: sessions.size, music: await music("status").catch(() => null) };
+}
+
+async function music(action) {
+  const player = (await sh("/usr/bin/pgrep", ["-x", "Spotify"])) ? "Spotify" : (await sh("/usr/bin/pgrep", ["-x", "Music"])) ? "Music" : "";
+  if (!player) { if (action === "status") return { player: "", state: "off" }; throw new Error("Na Macu nie jest otwarta ani Muzyka, ani Spotify."); }
+  const verb = { playpause: "playpause", next: "next track", previous: "previous track" }[action];
+  if (verb) { await script(`tell application "${player}" to ${verb}`); await new Promise((r) => setTimeout(r, 700)); }
+  const out = await script(`tell application "${player}"\nif player state is stopped then return "stopped||"\nreturn (player state as text) & "|" & (name of current track) & "|" & (artist of current track)\nend tell`);
+  if (!out) throw new Error(`macOS nie pozwolił sterować aplikacją ${player}. Trzeba raz kliknąć zgodę w okienku na Macu.`);
+  const [state, track, artist] = out.split("|");
+  return { player, state, track: track || "", artist: artist || "" };
+}
+
+function shelf(query, limit = 12) {
+  const want = fold(query).split(/\s+/).filter(Boolean), found = [];
+  const walk = (dir, depth) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith(".")) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) { if (depth < 5) walk(full, depth + 1); continue; }
+      const rel = relative(SHELF, full);
+      if (want.length && !want.every((w) => fold(rel).includes(w))) continue;
+      const info = statSync(full);
+      found.push({ path: rel, size: info.size, changed: Math.round(info.mtimeMs) });
+    }
+  };
+  walk(SHELF, 0);
+  return found.sort((a, b) => b.changed - a.changed).slice(0, limit);
+}
+
+async function sendFile(path) {
+  const full = realpathSync(join(SHELF, String(path || ""))), root = realpathSync(SHELF);
+  if (full !== root && !full.startsWith(root + sep)) throw new Error("Ten plik leży poza folderem Gzowo Labs.");
+  const mime = MIMES[extname(full).toLowerCase()], info = statSync(full);
+  if (!mime) throw new Error("Tego rodzaju pliku nie umiem jeszcze przesłać do wątku (na razie obrazki, PDF i tekst).");
+  if (info.size > 12e6) throw new Error("Plik jest większy niż 12 MB, a to na razie limit wątku.");
+  const res = await fetch(`${API}/api/upload`, { method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ name: basename(full), mime, data: readFileSync(full).toString("base64") }) });
+  if (!res.ok) throw new Error(`Serwer nie przyjął pliku (${res.status}).`);
+  return { file: (await res.json()).file, path: relative(root, full) };
+}
 
 function touch(id, patch = {}) {
   let s = sessions.get(id);
@@ -89,6 +145,14 @@ async function run(tool, input) {
     settle(ask, { decision: String(input.decision || ""), answers: input.answers || {}, text: String(input.text || "").slice(0, 2000) });
     log("answer", ask.session.slice(0, 8), ask.kind, String(input.decision || ""));
     return { ok: true };
+  }
+  if (tool === "hub.state") return macState();
+  if (tool === "hub.music") return music(String(input.action || "status"));
+  if (tool === "hub.files") {
+    try { return { folder: "Documents/Gzowo Labs", files: shelf(String(input.query || ""), Math.max(1, Math.min(20, +input.limit || 12))) }; } catch (err) { throw new Error(err.code === "EPERM" || err.code === "EACCES" ? "macOS nie dał dostępu do folderu Dokumenty. Trzeba raz kliknąć zgodę w okienku na Macu." : `Nie udało się przejrzeć folderu: ${err.message}`); }
+  }
+  if (tool === "hub.send") {
+    try { return await sendFile(input.path); } catch (err) { throw new Error(err.code === "ENOENT" ? "Nie ma takiego pliku w folderze Gzowo Labs." : err.code === "EPERM" || err.code === "EACCES" ? "macOS nie dał dostępu do folderu Dokumenty. Trzeba raz kliknąć zgodę w okienku na Macu." : err.message); }
   }
   if (tool === "code.sessions") {
     prune();
