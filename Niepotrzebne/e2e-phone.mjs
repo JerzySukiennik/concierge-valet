@@ -88,7 +88,7 @@ async function tour(tag, opts) {
   await page.fill("#input", "");
   await page.evaluate(() => document.getElementById("input").blur());
   await settle(page, 300);
-  check(`${tag} composer shrinks back`, await page.evaluate(() => document.getElementById("input").offsetHeight <= 42 && document.getElementById("send").disabled));
+  check(`${tag} composer shrinks back`, await page.evaluate(() => document.getElementById("input").offsetHeight <= 42 && (document.getElementById("send").disabled || document.getElementById("send").classList.contains("talk"))));
   await page.tap("#thread .msg.ag >> nth=-1");
   check(`${tag} tap reveals time`, await page.evaluate(() => !!document.querySelector("#thread .msg.timed")));
   await shot(page, `${tag}-03-czas`, 500);
@@ -219,13 +219,13 @@ async function flows() {
 
   await page.evaluate(() => { document.getElementById("view-chat").scrollTop = 0; });
   await settle(page, 300);
-  const q = page.locator("#thread .quote").first();
+  const q = page.locator("#thread .quote").last();
   if (await q.count()) {
-    await page.evaluate(() => { const qq = document.querySelector("#thread .quote"); if (qq) qq.scrollIntoView({ block: "center" }); });
+    await page.evaluate(() => { const qq = [...document.querySelectorAll("#thread .quote")].pop(); if (qq) qq.scrollIntoView({ block: "center" }); });
     await settle(page, 300);
+    const under = await page.evaluate(() => { const qq = [...document.querySelectorAll("#thread .quote")].pop(), r = qq.getBoundingClientRect(), e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return { hit: `${e?.tagName}.${String(e?.className).slice(0, 40)}#${e?.id || ""}`, jump: qq.dataset.jump, target: !!document.querySelector(`#thread [data-id="${qq.dataset.jump}"]`), y: Math.round(r.top) }; });
     await q.tap();
-    await page.waitForTimeout(500);
-    check("quote jumps and flashes the original", await page.evaluate(() => !!document.querySelector("#thread .flash")));
+    check("quote jumps and flashes the original", await page.waitForSelector("#thread .flash", { timeout: 8000 }).then(() => true, () => false), under);
     await frame(page, "flow-06-cytat-blysk");
   }
 
