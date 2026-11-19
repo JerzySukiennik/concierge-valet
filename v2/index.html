@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8f6f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Valet">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<title>Concierge Valet</title>
+<link rel="stylesheet" href="avatar.css">
+<link rel="stylesheet" href="cards.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app" hidden>
+  <header class="top">
+    <button class="crew" id="agents-btn" aria-label="Agenci"><span class="crew-stack" id="crew"></span></button>
+    <div class="puck tap" id="puck" data-state="idle" role="button" tabindex="0" aria-label="Valet"></div>
+    <button class="rnd" id="me-btn" aria-label="Ustawienia">J</button>
+    <div class="status" id="status" aria-live="polite"><i class="status-bg" id="status-bg"></i><span class="status-text" id="status-text"></span></div>
+  </header>
+  <div class="views" id="views">
+    <main class="view" id="view-chat"><div class="thread" id="thread"></div></main>
+    <main class="view" id="view-tasks" hidden><div class="list" id="tasks"></div></main>
+    <main class="view" id="view-make" hidden><div class="list" id="make"></div></main>
+    <button class="jump" id="jump" aria-label="Przewiń do najnowszych"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v13M6 12.5l6 6 6-6"/></svg><span class="n" id="jump-n" hidden></span></button>
+  </div>
+  <footer class="bottom">
+    <form class="composer" id="composer">
+      <div class="tray" id="tray" hidden></div>
+      <div class="cbox" id="cbox">
+        <button type="button" class="attach" id="attach" aria-label="Dodaj zdjęcie albo plik"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button>
+        <input type="file" id="pick" accept="image/*,application/pdf,text/plain,text/markdown,text/csv" multiple hidden>
+        <textarea id="input" rows="1" placeholder="Wiadomość" aria-label="Wiadomość" autocomplete="off" enterkeyhint="send"></textarea>
+        <div class="dict" id="dict" hidden>
+          <button type="button" class="dict-x" id="dict-x" aria-label="Anuluj dyktowanie"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+          <canvas class="dict-wave" id="dict-wave" aria-hidden="true"></canvas>
+          <button type="button" class="dict-stop" id="dict-stop" aria-label="Zatrzymaj i wstaw tekst"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="2"/></svg></button>
+          <button type="button" class="dict-send" id="dict-send" aria-label="Wyślij od razu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18.5V6M6.5 11.5L12 6l5.5 5.5"/></svg></button>
+        </div>
+        <button type="button" class="mic" id="mic" aria-label="Dyktuj"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></svg></button>
+        <button class="send" id="send" aria-label="Wyślij" disabled><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18.5V6M6.5 11.5L12 6l5.5 5.5"/></svg><svg class="wave" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10v4M9 7v10M12.5 4.5v15M16 8v8M19.5 10.5v3"/></svg></button>
+      </div>
+    </form>
+    <nav class="tabs" id="tabs" role="tablist" style="--i:0">
+      <i class="pill" aria-hidden="true"></i>
+      <button data-tab="chat" class="on" role="tab" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4 19.5l1.4-4.3A7.5 7.5 0 1 1 20 11.5z"/></svg><span>Czat</span></button>
+      <button data-tab="tasks" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4.5"/><path class="mark" d="M8.5 12.2l2.4 2.4 4.6-5"/></svg><span>Zadania</span><b class="badge" id="badge" hidden></b></button>
+      <button data-tab="make" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4l1.8 5.2L18 11l-5.2 1.8L11 18l-1.8-5.2L4 11l5.2-1.8z"/><path class="mark" d="M18.5 3.5v3M17 5h3M18.5 16.5v3M17 18h3"/></svg><span>Twórz</span></button>
+    </nav>
+  </footer>
+</div>
+
+<div id="scrim" hidden></div>
+<section id="sheet" class="sheet" role="dialog" aria-modal="true" aria-label="Panel" hidden><i class="grab" aria-hidden="true"></i><div class="pages" id="pages"></div></section>
+<div id="ctx" hidden></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<section id="pair" hidden>
+  <form class="pair-in" id="pair-form" autocomplete="off">
+    <div class="puck tap" id="pair-puck"></div>
+    <h1>Concierge Valet</h1>
+    <p>Wpisz klucz dostępu, żeby połączyć to urządzenie z Twoim agentem.</p>
+    <div class="pair-field"><input id="pair-key" type="password" placeholder="Klucz dostępu" aria-label="Klucz dostępu" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go"></div>
+    <button class="btn wide" id="pair-go" type="submit">Połącz</button>
+    <div class="err" id="pair-err" role="alert"></div>
+    <p class="hint">Możesz też otworzyć link parowania z kodu QR na Macu.</p>
+  </form>
+</section>
+
+<script type="module" src="app.js"></script>
+<div class="voice" id="voice" hidden>
+  <div class="voice-state" id="voice-state">Łączę</div>
+  <div class="voice-ring" id="voice-ring"><div class="puck tap" id="voice-puck" data-state="idle" role="button" tabindex="0" aria-label="Przerwij i mów"></div></div>
+  <div class="voice-actions">
+    <button type="button" class="voice-btn" id="voice-mute" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></svg><span>Wycisz</span></button>
+    <button type="button" class="voice-btn end" id="voice-end"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg><span>Zakończ</span></button>
+  </div>
+</div>
+</body>
+</html>
