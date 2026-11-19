@@ -6,7 +6,7 @@ import { chatTools, VERDICT } from "./tools.mjs";
 import { clockOf, findTitles, image, title, titleList, youtube } from "./connectors.mjs";
 import { calendarOn, changeEvent, createEvent, discover, listEvents, parts, removeEvent } from "./calendar.mjs";
 import { kaggleOn, recent as kaggleRecent, status as kaggleStatus, tail as kaggleTail } from "./kaggle.mjs";
-import { geminiOn, kindOf, liveSetup, liveToken, readPost, transcribe, watchBytes, watchYouTube } from "./media.mjs";
+import { dictationSetup, geminiOn, kindOf, liveSetup, liveToken, readPost, watchBytes, watchYouTube } from "./media.mjs";
 import { sendPush } from "./push.mjs";
 import { cost, dayKey, fromLocal, hm, human, isoLocal, json, local, nextAt, nextRepeat, parseLocal, sign } from "./util.mjs";
 
@@ -17,6 +17,7 @@ const CHUNK = 1000000;
 const FILES = "SELECT * FROM files WHERE task IS NULL OR task >= 0 ORDER BY ts DESC LIMIT 60";
 const UPLOADS = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "application/pdf": "pdf", "text/plain": "txt", "text/markdown": "md", "text/csv": "csv", "application/x-apple-shortcut": "shortcut" };
 const b64 = (bytes) => { let out = ""; for (let i = 0; i < bytes.length; i += 32768) out += String.fromCharCode(...bytes.subarray(i, i + 32768)); return btoa(out); };
+const SHOWN = ["sky", "agenda", "videos", "title", "titles"];
 const OUTSIDE = /^(whatsapp_read|whatsapp_chats|youtube_search|show_title|show_titles|watch_link)$/;
 const PERMIT = /(^|[^\p{L}])(tak|pozw[oó]l|pozwalam|zezw[oó]l|zezwalam|ok|okej|oki|dawaj|jasne|[sś]mia[lł]o|potwierdzam|zgoda|pewnie|niech|dobra|yes|allow)([^\p{L}]|$)/iu;
 const INSTALL = /(^|[^\p{L}])(tak|zainstaluj|instaluj|dodaj|pod[lł][aą]cz|ok|okej|oki|dawaj|jasne|[sś]mia[lł]o|potwierdzam|zgoda|pewnie|dobra|yes|install)([^\p{L}]|$)/iu;
@@ -137,6 +138,7 @@ export class Valet extends DurableObject {
 
   post({ who, agent = null, kind = "text", text = "", data = null, reply_to = null }) {
     const ts = Date.now();
+    if (this.turn?.voice && who === "agent" && SHOWN.includes(kind)) return { id: 0, ts, who, agent, kind, text, data, reply_to };
     const id = this.sql.exec("INSERT INTO msgs (ts, who, agent, kind, text, data, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id", ts, who, agent, kind, text, data ? JSON.stringify(data) : null, reply_to).one().id;
     const m = { id, ts, who, agent, kind, text, data, reply_to };
     this.broadcast({ t: "msg", m });
@@ -196,7 +198,6 @@ export class Valet extends DurableObject {
     }
     if (path === "/api/hook") return this.hook(req);
     if (path === "/api/media" && req.method === "POST") return this.media(req);
-    if (path === "/api/transcribe" && req.method === "POST") return this.dictation(req);
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     if (path === "/internal/task") return this.taskEvent(body);
 
@@ -314,14 +315,12 @@ export class Valet extends DurableObject {
       case "POST /api/voice/token": {
         if (!geminiOn(this.env)) return json({ error: "Głos nie jest jeszcze podłączony." }, 503);
         const st = this.settings();
-        try { return json(await liveToken(this.env, liveSetup(this.env, st.owner, st.agents.valet.name))); } catch (err) { console.error("voice", String(err?.message || err)); return json({ error: "Nie udało się zacząć rozmowy głosowej." }, 502); }
+        try { return json(await liveToken(this.env, body.mode === "dictate" ? dictationSetup(this.env) : liveSetup(this.env, st.owner, st.agents.valet.name))); } catch (err) { console.error("voice", String(err?.message || err)); return json({ error: body.mode === "dictate" ? "Nie udało się zacząć dyktowania." : "Nie udało się zacząć rozmowy głosowej." }, 502); }
       }
       case "POST /api/voice/ask": {
         const text = String(body.text || "").trim().slice(0, 4000);
         if (!text) return json({ reply: "Nie usłyszałem pytania." });
-        const m = this.post({ who: "me", text, data: { via: "voice" } });
-        await this.ctx.storage.setAlarm(Date.now());
-        return json({ id: m.id, reply: (await this.replyTo(m.id, 70)) || "Valet jeszcze nad tym pracuje. Odpowiedź pojawi się w wątku." });
+        try { return json({ reply: (await this.voiceTurn(text)) || "Nie mam na to odpowiedzi." }); } catch (err) { console.error("voice turn", String(err?.stack || err)); return json({ reply: "Coś poszło nie tak po mojej stronie. Spróbuj jeszcze raz." }); }
       }
       case "POST /api/skill/act": {
         const d = this.cardRows("skill", 7 * 1440).find((x) => x.row.id === +body.msg);
@@ -728,22 +727,6 @@ export class Valet extends DurableObject {
     await this.rearm();
   }
 
-  async dictation(req) {
-    if (!geminiOn(this.env)) return json({ error: "Dyktowanie nie jest jeszcze podłączone." }, 503);
-    const mime = (req.headers.get("content-type") || "audio/mp4").split(";")[0].trim();
-    const bytes = new Uint8Array(await req.arrayBuffer());
-    if (bytes.length < 800) return json({ text: "" });
-    if (bytes.length > 14e6) return json({ error: "Nagranie jest za długie." }, 413);
-    try {
-      const heard = await transcribe(this.env, b64(bytes), /^audio\//.test(mime) ? mime : "audio/mp4");
-      this.addSpend(heard.usd);
-      return json({ text: heard.text });
-    } catch (err) {
-      console.error("dictation", String(err?.message || err));
-      return json({ error: "Nie udało się przepisać nagrania." }, 502);
-    }
-  }
-
   async replyTo(id, tries = 60) {
     for (let i = 0; i < tries; i++) {
       await new Promise((r) => setTimeout(r, 700));
@@ -873,7 +856,7 @@ export class Valet extends DurableObject {
     return out.slice(-16);
   }
 
-  context(fresh, cursor, events = []) {
+  context(fresh, cursor, events = [], voice = null) {
     const s = this.settings(), owner = s.owner;
     const line = (m) => {
       const who = m.who === "me" ? owner : m.who === "sys" ? "System" : s.agents[m.agent]?.name || "Valet";
@@ -900,7 +883,7 @@ export class Valet extends DurableObject {
       spend.today >= spend.limit ? "<budget>The daily API budget is used up. You are running on the small model, and new background tasks are refused until tomorrow. Tell him if he asks for one.</budget>" : "",
       `<thread>\n${prior.length ? prior.map(line).join("\n") : "(this is the start of the thread)"}\n</thread>`,
       events.length ? `<events>\nThese arrived on their own. He has not seen them and did not ask about them.\n\n${events.map((e) => e.replace(/^\[ask [^\]]+\] /, "")).join("\n\n")}\n\nDecide what he needs, and stay quiet by default: every message from you interrupts him. For WhatsApp messages: write only when he himself has to know or do something (a test, homework, a deadline, a change of plans, something to bring or pay, a question put to him or one he can clearly answer), in one or two sentences, naming the chat. When a reply from him would help, also prepare it with whatsapp_draft so he only has to approve it, and read the calendar first when the answer depends on dates. A question or request addressed to a teacher or to somebody else, somebody else's own problem, and a follow-up to a matter the thread shows you already told him about are not his business: answer SKIP. Never write just to say that you are not answering or not preparing anything. For a Claude Code session that finished a turn: tell him in one to three sentences what the session did or what it is asking, naming the session; pass a question on as a question and add what you would check or decide in his place. For a Claude Code session that waits for his permission: the card already shows what it asks and he has been notified, so answer SKIP when the action is routine and safe (reading, a local preview, a build, tests, an edit inside the project); write only when he should think twice (deleting, pushing, deploying, sending, paying, something outside the project), and then say in one or two plain sentences what it does and what could go wrong. For a Claude Code session that waits for his answer to a question: add one or two sentences only if you can help him choose; otherwise SKIP. For a Kaggle notebook: tell him in one or two sentences that it finished or failed, and on a failure say in plain words what the log shows went wrong. Never answer a session yourself and never call code_send or code_answer in this turn. If nothing here is worth interrupting him, answer with exactly SKIP.\n</events>` : "",
-      fresh.length ? `<new_messages>\n${fresh.map((m) => `[${hm(m.ts)}] ${owner}${m.data?.via === "voice" ? " (said out loud; your answer will be spoken to him, so lead with the answer and keep it short and easy to say)" : ""}: ${m.text || "(no text)"}${m.data?.files?.length ? ` [attached: ${m.data.files.map((f) => f.name).join(", ")}]` : ""}`).join("\n")}\n</new_messages>` : "<new_messages>\n(none: this turn was started by the events above)\n</new_messages>",
+      voice ? `<voice_conversation>\nHe is talking to you out loud right now. This spoken conversation is separate from the thread above: nothing said in it is posted there, and the thread is only background. His words reach you through a voice model that may shorten, rephrase or translate them, so answer what he most likely meant, in Polish. Your answer is read out loud to him: lead with the answer, one to three short sentences, no lists, links or symbols. Cards that only display something (weather, agenda, videos, films) are not shown during this conversation, so give those facts in words and never say that a card is in the thread. Cards for things he asked you to do (an event you added, a message to approve, a recipe, a skill) do appear in the app; mention one only when it needs his decision there. Nothing can be approved by voice.\n\n${voice.log.length ? voice.log.map((x) => `${x.who === "me" ? owner : "You"}: ${x.text}`).join("\n") : "(the conversation has just started)"}\n</voice_conversation>\n\n<said_now>\n${owner}: ${voice.text}\n</said_now>` : fresh.length ? `<new_messages>\n${fresh.map((m) => `[${hm(m.ts)}] ${owner}: ${m.text || "(no text)"}${m.data?.files?.length ? ` [attached: ${m.data.files.map((f) => f.name).join(", ")}]` : ""}`).join("\n")}\n</new_messages>` : "<new_messages>\n(none: this turn was started by the events above)\n</new_messages>",
     ].filter(Boolean).join("\n\n");
   }
 
@@ -971,19 +954,7 @@ export class Valet extends DurableObject {
     this.broadcast({ t: "calendar", today: this.get("calToday", { events: [] }).events });
   }
 
-  async chatTurn() {
-    const cursor = this.get("cursor", 0);
-    const fresh = this.rows("SELECT * FROM msgs WHERE id > ? AND who = 'me' ORDER BY id", cursor).map((m) => ({ ...m, data: m.data ? JSON.parse(m.data) : null }));
-    const events = fresh.length ? [] : this.get("events", []);
-    if (!fresh.length && !events.length) return;
-    const origin = fresh.length ? fresh[fresh.length - 1].id : null;
-    const s = this.settings(), budget = this.spend();
-    const model = budget.today >= budget.limit ? s.models.text : s.models.chat;
-    if (fresh.length) this.status("thinking", "Myśli", true);
-    this.drawn = 0;
-    this.turn = { first: fresh.length ? fresh[0].id : 0, text: fresh.map((m) => m.text).join("\n"), hook: fresh.some((m) => m.data?.via === "hook" || m.data?.via === "voice") };
-    const seen = fresh.length ? this.attachments(fresh) : [];
-    const messages = [{ role: "user", content: seen.length ? [...seen, { type: "text", text: this.context(fresh, cursor, events) }] : this.context(fresh, cursor, events) }];
+  async converse(model, messages, turn, origin, onLabel = () => {}) {
     let shown = "", reply = "", sources = [];
     for (let i = 0; i < 8; i++) {
       const res = await ask(this.env, {
@@ -999,20 +970,21 @@ export class Valet extends DurableObject {
         const text = label(e);
         if (!text || text === shown) return;
         shown = text;
-        if (fresh.length) this.status(text === "Pisze" ? "speaking" : "working", text, true);
+        onLabel(text);
       });
       this.addSpend(cost(res.usage, res.model || model));
       console.log("chat usage", i, res.stop_reason, cost(res.usage, res.model || model).toFixed(4), JSON.stringify(res.usage));
       if (res.stop_reason === "refusal") { reply = "Tego nie mogę zrobić."; break; }
       messages.push({ role: "assistant", content: res.content });
-      if (res.content.some((b) => b.type === "server_tool_use")) this.turn.outside = true;
+      if (res.content.some((b) => b.type === "server_tool_use")) turn.outside = true;
       if (res.stop_reason === "pause_turn") continue;
       const uses = res.content.filter((b) => b.type === "tool_use");
       if (res.stop_reason === "tool_use" && uses.length) {
         const results = [];
         for (const u of uses) {
           let content, failed = false;
-          if (OUTSIDE.test(u.name)) this.turn.outside = true;
+          if (OUTSIDE.test(u.name)) turn.outside = true;
+          this.turn = turn;
           try { content = await this.tool(u.name, u.input || {}, origin); } catch (err) { failed = true; content = `Tool failed: ${String(err?.message || err).slice(0, 300)}`; }
           results.push({ type: "tool_result", tool_use_id: u.id, content, ...(failed ? { is_error: true } : {}) });
         }
@@ -1022,6 +994,35 @@ export class Valet extends DurableObject {
       ({ text: reply, sources } = extract(res.content));
       break;
     }
+    return { reply, sources };
+  }
+
+  async voiceTurn(text) {
+    const s = this.settings(), budget = this.spend(), now = Date.now();
+    const model = budget.today >= budget.limit ? s.models.text : s.models.chat;
+    const log = this.get("voiceLog", []).filter((x) => now - x.ts < 30 * 60000).slice(-14);
+    const turn = { first: 0, text, hook: true, voice: true };
+    this.drawn = 0;
+    const { reply } = await this.converse(model, [{ role: "user", content: this.context([], this.get("cursor", 0), [], { text, log }) }], turn, null);
+    const said = String(reply || "").replace(/\*\*|__|`/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim();
+    this.put("voiceLog", [...log, { who: "me", text: text.slice(0, 600), ts: now }, { who: "valet", text: said.slice(0, 900), ts: Date.now() }].slice(-14));
+    return said;
+  }
+
+  async chatTurn() {
+    const cursor = this.get("cursor", 0);
+    const fresh = this.rows("SELECT * FROM msgs WHERE id > ? AND who = 'me' ORDER BY id", cursor).map((m) => ({ ...m, data: m.data ? JSON.parse(m.data) : null }));
+    const events = fresh.length ? [] : this.get("events", []);
+    if (!fresh.length && !events.length) return;
+    const origin = fresh.length ? fresh[fresh.length - 1].id : null;
+    const s = this.settings(), budget = this.spend();
+    const model = budget.today >= budget.limit ? s.models.text : s.models.chat;
+    if (fresh.length) this.status("thinking", "Myśli", true);
+    this.drawn = 0;
+    this.turn = { first: fresh.length ? fresh[0].id : 0, text: fresh.map((m) => m.text).join("\n"), hook: fresh.some((m) => m.data?.via === "hook") };
+    const seen = fresh.length ? this.attachments(fresh) : [];
+    const messages = [{ role: "user", content: seen.length ? [...seen, { type: "text", text: this.context(fresh, cursor, events) }] : this.context(fresh, cursor, events) }];
+    const { reply, sources } = await this.converse(model, messages, this.turn, origin, (text) => { if (fresh.length) this.status(text === "Pisze" ? "speaking" : "working", text, true); });
     if (origin) this.put("cursor", origin);
     const quiet = events.length > 0 && this.get("eventsQuiet", false);
     if (events.length) { this.put("events", []); this.put("eventsQuiet", false); }

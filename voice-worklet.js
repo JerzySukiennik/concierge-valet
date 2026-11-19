@@ -1,4 +1,4 @@
-/* Microphone capture for the live conversation: averages the input down to 16 kHz, packs it as 16-bit PCM and posts 100 ms chunks with their loudness. */
+/* Microphone capture for the live conversation: averages the input down to 16 kHz, packs it as 16-bit PCM and posts 50 ms chunks with their loudness. */
 class ValetCapture extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -6,7 +6,7 @@ class ValetCapture extends AudioWorkletProcessor {
     this.fill = 0;
     this.sum = 0;
     this.count = 0;
-    this.out = new Int16Array(1600);
+    this.out = new Int16Array(800);
     this.n = 0;
     this.power = 0;
   }
@@ -27,7 +27,7 @@ class ValetCapture extends AudioWorkletProcessor {
       this.power += v * v;
       if (this.n < this.out.length) continue;
       this.port.postMessage({ pcm: this.out.buffer, level: Math.sqrt(this.power / this.n) }, [this.out.buffer]);
-      this.out = new Int16Array(1600);
+      this.out = new Int16Array(800);
       this.n = 0;
       this.power = 0;
     }

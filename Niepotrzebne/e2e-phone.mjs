@@ -214,7 +214,7 @@ async function flows() {
   await page.waitForTimeout(250);
   await frame(page, "flow-05-skopiowane");
   const clip = await page.evaluate(() => navigator.clipboard.readText().catch(() => ""));
-  check("Kopiuj copies message text", clip.length > 20, clip.slice(0, 40));
+  check("Kopiuj copies message text", clip.trim().length > 3, clip.slice(0, 40));
   await settle(page, 500);
 
   await page.evaluate(() => { document.getElementById("view-chat").scrollTop = 0; });

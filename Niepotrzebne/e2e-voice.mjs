@@ -1,4 +1,4 @@
-/* Phone check for voice in real Chrome with a spoken Polish sentence fed in as the microphone: dictation fills the composer with a clean transcript, and the live conversation hears a question, asks the agent and speaks the answer. */
+/* Phone check for voice in real Chrome with a spoken Polish sentence fed in as the microphone: dictation shows live waves, Stop puts a clean transcript into the composer, Send posts it at once, and the live conversation answers out loud without writing anything into the thread. */
 import { readFileSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -10,13 +10,15 @@ const token = readFileSync(join(here, "../worker/.dev.vars"), "utf8").split("\n"
 const origin = process.env.VALET_APP || "http://localhost:2141";
 const out = join(here, "shots/voice");
 mkdirSync(out, { recursive: true });
+const only = process.argv.find((a) => ["--stop", "--send", "--talk"].includes(a));
 const report = {};
 
 function speech(name, text) {
   const aiff = join(out, `${name}.aiff`), wav = join(out, `${name}.wav`);
   execFileSync("/usr/bin/say", ["-v", "Zosia", "-o", aiff, text]);
   execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-i", aiff, "-af", "adelay=1200,apad=pad_dur=8", "-ar", "48000", "-ac", "1", wav]);
-  return wav;
+  const seconds = +execFileSync("ffprobe", ["-loglevel", "error", "-show_entries", "format=duration", "-of", "csv=p=0", aiff]).toString();
+  return { wav, ms: Math.round(seconds * 1000) + 1200 };
 }
 
 async function open(wav) {
@@ -32,49 +34,65 @@ async function open(wav) {
   return { browser, page, errors };
 }
 
-if (!process.argv.includes("--talk")) {
-  const { browser, page, errors } = await open(speech("dyktowanie", "Dodaj proszę do do kalendarza, eee, jutro o siedemnastej, trening piłki nożnej."));
-  report.micShown = await page.locator("#mic").isVisible();
-  report.talkMode = await page.evaluate(() => document.getElementById("send").classList.contains("talk"));
+const waveInk = (page) => page.evaluate(() => { const c = document.getElementById("dict-wave"), d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data; let rows = new Set(); for (let i = 3; i < d.length; i += 4) if (d[i] > 40) rows.add(Math.floor(i / 4 / c.width)); return rows.size; });
+
+if (!only || only === "--stop") {
+  const said = speech("dyktowanie", "Dodaj proszę do do kalendarza, eee, jutro o siedemnastej, trening piłki nożnej.");
+  const { browser, page, errors } = await open(said.wav);
   await page.locator("#mic").tap();
-  await page.waitForSelector("#mic.rec", { timeout: 8000 });
-  await page.waitForTimeout(7500);
-  await page.screenshot({ path: join(out, "dyktowanie-nagrywa.png") });
-  await page.locator("#mic").tap();
-  await page.waitForFunction(() => document.getElementById("input").value.trim().length > 0 || document.querySelector(".toast"), null, { timeout: 45000 }).catch(() => {});
-  report.dictated = await page.evaluate(() => document.getElementById("input").value);
-  report.sendReady = await page.evaluate(() => { const s = document.getElementById("send"); return !s.disabled && !s.classList.contains("talk"); });
-  await page.screenshot({ path: join(out, "dyktowanie-tekst.png") });
-  report.dictationErrors = errors;
+  await page.waitForSelector("#dict:not([hidden])", { timeout: 8000 });
+  await page.waitForTimeout(700);
+  const quiet = await waveInk(page);
+  await page.waitForTimeout(2600);
+  const loud = await waveInk(page);
+  await page.screenshot({ path: join(out, "dyktowanie-fale.png") });
+  await page.waitForTimeout(Math.max(0, said.ms - 3300) + 500);
+  const t0 = Date.now();
+  await page.locator("#dict-stop").tap();
+  await page.waitForFunction(() => document.getElementById("dict").hidden, null, { timeout: 15000 });
+  report.stop = { waveRowsQuiet: quiet, waveRowsSpeaking: loud, msToText: Date.now() - t0, text: await page.evaluate(() => document.getElementById("input").value), errors };
   await browser.close();
 }
 
-if (!process.argv.includes("--dictate")) {
-  const { browser, page, errors } = await open(speech("pytanie", "Cześć Valet. Co mam jutro w kalendarzu?"));
-  const before = await page.locator("#thread .msg").count();
+if (!only || only === "--send") {
+  const said = speech("wyslij", "To jest test dyktowania. Nie odpowiadaj nic poza słowem przyjąłem.");
+  const { browser, page, errors } = await open(said.wav);
+  const before = await page.locator("#thread .msg.me").count();
+  await page.locator("#mic").tap();
+  await page.waitForSelector("#dict:not([hidden])", { timeout: 8000 });
+  await page.waitForTimeout(said.ms + 600);
+  const t0 = Date.now();
+  await page.locator("#dict-send").tap();
+  await page.waitForFunction((n) => document.querySelectorAll("#thread .msg.me").length > n, before, { timeout: 15000 });
+  report.send = { msToMessage: Date.now() - t0, sent: await page.evaluate(() => [...document.querySelectorAll("#thread .msg.me")].pop().firstChild.textContent), inputLeft: await page.evaluate(() => document.getElementById("input").value), errors };
+  await browser.close();
+}
+
+if (!only || only === "--talk") {
+  const said = speech("pytanie", "Cześć Valet. Jaka jest jutro pogoda w Warszawie?");
+  const { browser, page, errors } = await open(said.wav);
+  await page.waitForTimeout(1500);
+  const before = await page.evaluate(() => document.querySelectorAll("#thread > *").length);
+  let audio = 0, asked = "";
+  page.on("websocket", (ws) => {
+    if (!ws.url().includes("generativelanguage")) return;
+    ws.on("framereceived", (f) => { const p = typeof f.payload === "string" ? f.payload : f.payload.toString(); if (p.includes("inlineData")) audio++; const m = /"request":\s*"([^"]{0,200})/.exec(p); if (m) asked = m[1]; });
+  });
   await page.locator("#send").tap();
   await page.waitForSelector("#voice:not([hidden])", { timeout: 8000 });
-  const seen = new Set(), lines = new Set();
-  const t0 = Date.now();
+  const seen = new Set(), t0 = Date.now();
   let spoke = 0;
-  while (Date.now() - t0 < 70000) {
-    const s = await page.evaluate(() => ({ hidden: document.getElementById("voice").hidden, state: document.getElementById("voice-state").textContent, line: document.getElementById("voice-line").textContent, me: document.getElementById("voice-line").classList.contains("me") }));
+  while (Date.now() - t0 < 80000) {
+    const s = await page.evaluate(() => ({ hidden: document.getElementById("voice").hidden, state: document.getElementById("voice-state").textContent }));
     if (s.hidden) break;
     seen.add(s.state);
-    if (s.line) lines.add(`${s.me ? "ja" : "valet"}: ${s.line}`);
     if (s.state === "Mówi" && !spoke) { spoke = Date.now() - t0; await page.screenshot({ path: join(out, "rozmowa-mowi.png") }); }
     if (spoke && s.state === "Słucham" && Date.now() - t0 - spoke > 2500) break;
-    await page.waitForTimeout(350);
+    await page.waitForTimeout(300);
   }
-  report.states = [...seen];
-  report.firstSpeechMs = spoke;
-  report.captions = [...lines].slice(-4);
   await page.locator("#voice-end").tap();
-  await page.waitForTimeout(1200);
-  report.closed = await page.evaluate(() => document.getElementById("voice").hidden);
-  report.newMessages = (await page.locator("#thread .msg").count()) - before;
-  report.lastReply = await page.evaluate(() => [...document.querySelectorAll("#thread .msg.ag")].pop()?.textContent.slice(0, 220));
-  report.talkErrors = errors;
+  await page.waitForTimeout(2500);
+  report.talk = { states: [...seen], firstSpeechMs: spoke, audioFrames: audio, askedValet: asked, captionShown: await page.locator("#voice-line").count(), closed: await page.evaluate(() => document.getElementById("voice").hidden), threadGrewBy: (await page.evaluate(() => document.querySelectorAll("#thread > *").length)) - before, errors };
   await browser.close();
 }
 

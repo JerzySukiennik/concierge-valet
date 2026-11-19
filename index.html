@@ -40,6 +40,12 @@
         <button type="button" class="attach" id="attach" aria-label="Dodaj zdjęcie albo plik"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button>
         <input type="file" id="pick" accept="image/*,application/pdf,text/plain,text/markdown,text/csv" multiple hidden>
         <textarea id="input" rows="1" placeholder="Wiadomość" aria-label="Wiadomość" autocomplete="off" enterkeyhint="send"></textarea>
+        <div class="dict" id="dict" hidden>
+          <button type="button" class="dict-x" id="dict-x" aria-label="Anuluj dyktowanie"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+          <canvas class="dict-wave" id="dict-wave" aria-hidden="true"></canvas>
+          <button type="button" class="dict-stop" id="dict-stop" aria-label="Zatrzymaj i wstaw tekst"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="2"/></svg></button>
+          <button type="button" class="dict-send" id="dict-send" aria-label="Wyślij od razu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18.5V6M6.5 11.5L12 6l5.5 5.5"/></svg></button>
+        </div>
         <button type="button" class="mic" id="mic" aria-label="Dyktuj"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></svg></button>
         <button class="send" id="send" aria-label="Wyślij" disabled><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18.5V6M6.5 11.5L12 6l5.5 5.5"/></svg><svg class="wave" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10v4M9 7v10M12.5 4.5v15M16 8v8M19.5 10.5v3"/></svg></button>
       </div>
@@ -74,7 +80,6 @@
 <div class="voice" id="voice" hidden>
   <div class="voice-state" id="voice-state">Łączę</div>
   <div class="voice-ring" id="voice-ring"><div class="puck tap" id="voice-puck" data-state="idle" role="button" tabindex="0" aria-label="Przerwij i mów"></div></div>
-  <p class="voice-line" id="voice-line" aria-live="polite"></p>
   <div class="voice-actions">
     <button type="button" class="voice-btn" id="voice-mute" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></svg><span>Wycisz</span></button>
     <button type="button" class="voice-btn end" id="voice-end"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg><span>Zakończ</span></button>

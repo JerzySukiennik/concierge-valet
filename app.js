@@ -3,7 +3,7 @@ import { TYPES, SWATCHES, defaults, mount, watch, look, poke, setState } from ".
 import { RM, anim, stagger, crossText, pressFeedback } from "./motion.js";
 import { createSheet, makePage } from "./sheet.js";
 import { CARD_KINDS, SIGNS, agendaNode, card as connectorCard, openImage, pickFile, thumb, trayNode } from "./cards.js";
-import { VoiceSession, startDictation, transcribe, voiceReady } from "./voice.js";
+import { Dictation, VoiceSession, voiceReady } from "./voice.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 const devPort = /^\d{4,5}$/.test(new URLSearchParams(location.search).get("api") || "") ? new URLSearchParams(location.search).get("api") : "8790";
@@ -676,41 +676,65 @@ function grow() {
 const VOICE = { base: API, token: () => S.token };
 const VOICE_TEXT = { connecting: "Łączę", listening: "Słucham", thinking: "Valet sprawdza", speaking: "Mówi" };
 const VOICE_FACE = { connecting: "thinking", listening: "listening", thinking: "working", speaking: "speaking" };
-let dict = null, talk = null, awake = null, lineWho = "", lineText = "";
+let dict = null, talk = null, awake = null, wavePushed = 0;
+const levels = [];
 
-async function toggleDictation() {
-  const mic = $("mic");
-  if (mic.classList.contains("busy")) return;
-  if (!dict) {
-    try { dict = await startDictation(); } catch (e) { return toast("Nie mam dostępu do mikrofonu"); }
-    mic.classList.add("rec");
-    mic.setAttribute("aria-label", "Zakończ dyktowanie");
-    input.placeholder = "Słucham";
-    return;
+function drawWave() {
+  const canvas = $("dict-wave"), ratio = Math.min(3, window.devicePixelRatio || 1), w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * ratio)) { canvas.width = Math.round(w * ratio); canvas.height = Math.round(h * ratio); }
+  const g = canvas.getContext("2d"), step = 5, bar = 3, shift = Math.min(1, (performance.now() - wavePushed) / 50) * step;
+  g.setTransform(ratio, 0, 0, ratio, 0, 0);
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = getComputedStyle(canvas).color;
+  const count = Math.ceil(w / step) + 1;
+  for (let i = 0; i < count; i++) {
+    const level = levels[levels.length - 1 - i] ?? 0, tall = Math.max(3, level * (h - 2)), x = w - (i + 1) * step - shift + step;
+    g.globalAlpha = Math.min(1, 0.35 + level) * Math.min(1, (x + step) / 40);
+    g.beginPath();
+    g.roundRect(x, (h - tall) / 2, bar, tall, 1.5);
+    g.fill();
   }
-  const rec = dict;
-  dict = null;
-  mic.classList.remove("rec");
-  mic.classList.add("busy");
-  input.placeholder = "Przepisuję";
-  try {
-    const text = await transcribe(VOICE, await rec.stop());
-    if (text) { input.value = input.value.trim() ? `${input.value.replace(/\s+$/, "")} ${text}` : text; grow(); } else toast("Nic nie usłyszałem");
-  } catch (e) {
-    toast(e.message || "Nie udało się przepisać nagrania");
-  }
-  mic.classList.remove("busy");
-  mic.setAttribute("aria-label", "Dyktuj");
-  input.placeholder = "Wiadomość";
 }
 
-function voiceCaption(who, text) {
-  if (who === "end") { lineWho = ""; return; }
-  if (who !== lineWho) { lineWho = who; lineText = ""; }
-  lineText += text;
-  const line = $("voice-line");
-  line.textContent = lineText.trim().slice(-220);
-  line.classList.toggle("me", who === "me");
+function closeDictation() {
+  dict = null;
+  $("dict").hidden = true;
+  $("dict").classList.remove("busy");
+}
+
+async function startDictation() {
+  if (dict || talk) return;
+  const box = $("dict"), session = new Dictation({ ...VOICE, onLevel: (level) => { levels.push(Math.min(1, Math.sqrt(level) * 2.4)); if (levels.length > 160) levels.shift(); wavePushed = performance.now(); } });
+  levels.length = 0;
+  dict = session;
+  box.hidden = false;
+  anim(box, [{ opacity: 0 }, { opacity: 1 }], { dur: 140, ease: "out" });
+  const paint = () => { if (dict !== session) return; drawWave(); requestAnimationFrame(paint); };
+  requestAnimationFrame(paint);
+  try {
+    await session.start();
+  } catch (e) {
+    if (dict === session) closeDictation();
+    toast(e?.name === "NotAllowedError" ? "Nie mam dostępu do mikrofonu" : "Nie udało się zacząć dyktowania");
+  }
+}
+
+async function finishDictation(sendNow) {
+  const session = dict, box = $("dict");
+  if (!session || box.classList.contains("busy")) return;
+  box.classList.add("busy");
+  let text = "", failed = false;
+  try { text = await session.stop(); } catch (e) { failed = true; toast(e.message || "Nie udało się przepisać nagrania"); }
+  if (dict === session) closeDictation();
+  if (!text) { if (!failed) toast("Nic nie usłyszałem"); return; }
+  input.value = input.value.trim() ? `${input.value.replace(/\s+$/, "")} ${text}` : text;
+  grow();
+  if (sendNow) send();
+}
+
+function cancelDictation() {
+  dict?.cancel();
+  closeDictation();
 }
 
 function closeVoice() {
@@ -724,23 +748,20 @@ function closeVoice() {
 }
 
 async function openVoice() {
-  if (talk) return;
+  if (talk || dict) return;
   const box = $("voice"), face = $("voice-puck");
   input.blur();
   remount(face, S.settings.agents.valet.avatar);
-  $("voice-line").textContent = "";
   $("voice-state").textContent = VOICE_TEXT.connecting;
   $("voice-mute").setAttribute("aria-pressed", "false");
-  lineWho = "";
   box.hidden = false;
   anim(box, [{ opacity: 0, transform: "scale(1.03)" }, { opacity: 1, transform: "none" }], { dur: 240, ease: "out" });
   navigator.wakeLock?.request("screen").then((lock) => { awake = lock; }).catch(() => {});
   const session = new VoiceSession({
     ...VOICE,
     onState: (state) => { $("voice-state").textContent = VOICE_TEXT[state] || ""; setState(face, VOICE_FACE[state] || "idle"); },
-    onCaption: voiceCaption,
     onLevel: (level) => $("voice-ring").style.setProperty("--lv", Math.min(1, level * 7).toFixed(2)),
-    onEnd: (message) => { if (talk === session) talk = null; closeVoice(); if (message) toast(message); sync().catch(() => {}); },
+    onEnd: (message) => { if (talk === session) talk = null; closeVoice(); if (message) toast(message); },
   });
   talk = session;
   try {
@@ -1643,7 +1664,10 @@ input.addEventListener("keydown", (e) => {
 });
 $("send").addEventListener("pointerdown", (e) => e.preventDefault());
 $("attach").addEventListener("click", () => $("pick").click());
-$("mic").addEventListener("click", toggleDictation);
+$("mic").addEventListener("click", startDictation);
+$("dict-x").addEventListener("click", cancelDictation);
+$("dict-stop").addEventListener("click", () => finishDictation(false));
+$("dict-send").addEventListener("click", () => finishDictation(true));
 $("voice-end").addEventListener("click", () => talk?.end());
 $("voice-mute").addEventListener("click", (e) => { const on = e.currentTarget.getAttribute("aria-pressed") !== "true"; e.currentTarget.setAttribute("aria-pressed", String(on)); talk?.mute(on); });
 $("voice-puck").addEventListener("click", () => talk?.interrupt());
