@@ -6,7 +6,7 @@ type Answer = { decision?: string; answers?: Record<string, string>; text?: stri
 
 const AWAY_SECONDS = 120
 const BACK_SECONDS = 20
-const link = { sock: '', id: '', title: '', live: false }
+const link = { sock: '', id: '', title: '', mode: '', live: false }
 
 async function hub<T>($: EngineInterface, method: string, path: string, body?: unknown): Promise<T | null> {
   try {
@@ -39,10 +39,11 @@ async function idle($: EngineInterface): Promise<number | null> {
   return got && typeof got.idle === 'number' && got.idle >= 0 ? got.idle : null
 }
 
-async function away($: EngineInterface): Promise<boolean> {
+async function away($: EngineInterface, permission = false): Promise<boolean> {
   if (!link.live || !link.id) return false
-  const seconds = await idle($)
-  return seconds !== null && seconds >= AWAY_SECONDS
+  const got = await hub<{ idle?: number; permits?: boolean }>($, 'GET', '/presence')
+  if (!got || typeof got.idle !== 'number' || (permission && got.permits !== true)) return false
+  return got.idle >= AWAY_SECONDS
 }
 
 async function ask($: EngineInterface, signal: AbortSignal, body: Record<string, unknown>): Promise<Answer | null> {
@@ -115,11 +116,13 @@ export const register: Register = (on) => {
 
   on('classic.SessionStart', ($, e, next) => {
     if (e.session_title) link.title = e.session_title
+    if (e.permission_mode) link.mode = e.permission_mode
     return next(e)
   })
 
   on('classic.UserPromptSubmit', ($, e, next) => {
     if (e.session_title) link.title = e.session_title
+    if (e.permission_mode) link.mode = e.permission_mode
     return next(e)
   })
 
@@ -137,7 +140,8 @@ export const register: Register = (on) => {
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
     if (verdict.decision !== 'ask' || e.tool_use_id === undefined || e.approver === undefined) return verdict
-    if (e.tool === 'AskUserQuestion' || e.tool === 'ExitPlanMode' || !(await away($))) return verdict
+    if (link.mode === 'bypassPermissions' || link.mode === 'dontAsk' || e.tool === 'AskUserQuestion' || e.tool === 'ExitPlanMode') return verdict
+    if (!(await away($, true))) return verdict
     const got = await ask($, next.signal, {
       id: e.tool_use_id,
       kind: 'permission',

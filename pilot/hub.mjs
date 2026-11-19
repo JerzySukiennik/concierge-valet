@@ -16,7 +16,7 @@ const TOKEN = (process.env.VALET_TOKEN || (existsSync(join(HOME, "token")) ? rea
 if (!TOKEN) { process.stderr.write("valet pilot: no access token (VALET_TOKEN or ~/.valet-pilot/token)\n"); process.exit(1); }
 
 const sessions = new Map(), pending = new Map(), asks = new Map();
-let bridge = null, pinger = null, retry = 2000, seq = 0, listed = [], told = -1;
+let bridge = null, pinger = null, retry = 2000, seq = 0, listed = [], told = -1, permits = false;
 const log = (...a) => process.stdout.write(`${new Date().toISOString().slice(11, 19)} ${a.join(" ")}\n`);
 const fold = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/ł/g, "l").trim();
 const clip = (s, n) => { const t = String(s || "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
@@ -279,10 +279,11 @@ const server = createServer(async (req, res) => {
       }
       return reply({ ok: true });
     }
-    if (req.method === "GET" && url.pathname === "/presence") return reply({ idle: await idleSeconds() });
+    if (req.method === "GET" && url.pathname === "/presence") return reply({ idle: await idleSeconds(), permits });
     if (req.method === "POST" && url.pathname === "/ask") {
       const body = await read(req), id = String(body.id || "");
       if (!body.session || !id) return reply({ error: "ask" }, 400);
+      if (body.kind !== "question" && !permits) return reply({ ok: false });
       const s = touch(String(body.session));
       const ask = { id, session: s.id, kind: body.kind === "question" ? "question" : "permission", answer: null, waiter: null };
       asks.set(id, ask);
@@ -346,6 +347,7 @@ async function connect() {
       if (e.data === "pong" || typeof e.data !== "string") return;
       let m;
       try { m = JSON.parse(e.data); } catch (err) { return; }
+      if (m.t === "config") { permits = m.permits === true; return; }
       if (m.t !== "call" || !m.id) return;
       try {
         send({ t: "result", id: m.id, ok: true, data: await run(m.tool, m.input || {}) });

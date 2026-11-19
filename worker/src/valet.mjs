@@ -57,7 +57,7 @@ function defaults(env) {
     briefs: { daily: true, weekly: true, hour: 7, minute: 0 },
     calendar: { nudge: 30, home: "", hidden: [] },
     whatsapp: { sign: "marka", watch: ["Ogłoszenia klasowe 8K", "Klasa 8K"], proactive: true },
-    code: { notify: "away" },
+    code: { notify: "away", permissions: "off" },
     agents: {
       valet: { name: "Valet", role: "Rozmawia z Tobą i rozdziela pracę", avatar: { type: "orbita", cfg: { pk: "#ffffff", ink: "#1d1c19", acc: "#1f5a46", sats: 1, tilt: -24 } } },
       atelier: { name: "Atelier", role: "Dokumenty i rzeczy wizualne", avatar: { type: "buzka", cfg: { pk: "#1f5a46", ink: "#f8f6f1", acc: "#f8f6f1", eye: "pill", gap: 13, mouth: "none" } } },
@@ -241,7 +241,7 @@ export class Valet extends DurableObject {
           const w = body.whatsapp, prev = this.settings().whatsapp;
           next.whatsapp = { sign: SIGNS[w.sign] ? w.sign : prev.sign, proactive: w.proactive === undefined ? prev.proactive : !!w.proactive, watch: Array.isArray(w.watch) ? w.watch.map((x) => String(x).trim().slice(0, 80)).filter(Boolean).slice(0, 30) : prev.watch };
         }
-        if (body.code) next.code = { notify: ["away", "always", "off"].includes(body.code.notify) ? body.code.notify : this.settings().code.notify };
+        if (body.code) { const prev = this.settings().code; next.code = { notify: ["away", "always", "off"].includes(body.code.notify) ? body.code.notify : prev.notify, permissions: ["off", "away"].includes(body.code.permissions) ? body.code.permissions : prev.permissions }; }
         if (body.agent && defaults(this.env).agents[body.agent.key]) {
           const a = body.agent, prev = this.settings().agents[a.key];
           const avatar = a.avatar && AVATARS.includes(a.avatar.type) ? { type: a.avatar.type, cfg: a.avatar.cfg || {} } : prev.avatar;
@@ -249,7 +249,7 @@ export class Valet extends DurableObject {
         }
         this.put("settings", next);
         if (body.briefs) { this.sql.exec("DELETE FROM sched WHERE builtin IN ('daily', 'weekly')"); this.seed(); await this.rearm(); }
-        if (body.whatsapp) this.pushConfig();
+        if (body.whatsapp || body.code) this.pushConfig();
         if (body.calendar) { await this.syncCalendar().catch((err) => console.error("calendar", String(err?.message || err))); await this.rearm(); }
         this.broadcast({ t: "settings", settings: this.settings(), sched: this.rows("SELECT * FROM sched ORDER BY due") });
         return json({ settings: this.settings() });
@@ -477,11 +477,11 @@ export class Valet extends DurableObject {
 
   macConfig(role = "role:mac") {
     const w = this.settings().whatsapp, linked = this.get("waVia", "app") === "link";
-    return { t: "config", watch: w.proactive && (role === "role:wa" || !linked) ? w.watch : [], every: 60 };
+    return { t: "config", watch: w.proactive && (role === "role:wa" || !linked) ? w.watch : [], every: 60, permits: role === "role:code" && this.settings().code.permissions === "away" };
   }
 
   pushConfig() {
-    for (const role of ["role:mac", "role:wa"]) for (const ws of this.ctx.getWebSockets(role)) { try { ws.send(JSON.stringify(this.macConfig(role))); } catch (e) {} }
+    for (const role of ["role:mac", "role:wa", "role:code"]) for (const ws of this.ctx.getWebSockets(role)) { try { ws.send(JSON.stringify(this.macConfig(role))); } catch (e) {} }
   }
 
   bridgeCall(tool, input = {}, ms = 25000) {
