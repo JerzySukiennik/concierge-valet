@@ -1,5 +1,5 @@
 /* Builds and signs the three iOS shortcuts that talk to the agent's hook: "Valet" (ask or dictate, hear the answer), "Wyślij do Valeta" (share a link or text) and "Zdjęcie do Valeta" (share a photo). Run with --prod for the live agent; the files hold the hook token, so they stay out of git. */
-import { readFileSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -96,19 +96,19 @@ const made = {};
 
 for (const [name, body] of Object.entries(made)) {
   const raw = join(out, `${name}.unsigned.shortcut`), done = join(out, `${name}.shortcut`);
+  rmSync(done, { force: true });
   writeFileSync(raw, body);
-  try {
-    execFileSync("/usr/bin/shortcuts", ["sign", "--mode", "anyone", "--input", raw, "--output", done], { stdio: ["ignore", "pipe", "pipe"], timeout: 60000 });
-    console.log(`signed: ${name}`);
-  } catch (err) {
-    console.log(`NOT signed: ${name}: ${String(err.stderr || err.message).trim().split("\n").filter((l) => !/ERROR: Unrecognized attribute string flag/.test(l)).slice(-2).join(" ").slice(0, 300)}`);
+  let problem = "";
+  for (let attempt = 0; attempt < 3 && !existsSync(done); attempt++) {
+    try { execFileSync("/usr/bin/shortcuts", ["sign", "--mode", "anyone", "--input", raw, "--output", done], { stdio: ["ignore", "pipe", "pipe"], timeout: 60000 }); } catch (err) { problem = String(err.stderr || err.message).trim().split("\n").filter((l) => !/ERROR: Unrecognized attribute string flag/.test(l)).slice(-2).join(" ").slice(0, 300); }
   }
+  console.log(existsSync(done) ? `signed: ${name}` : `NOT signed: ${name}: ${problem}`);
   if (!process.env.KEEP) rmSync(raw, { force: true });
 }
 if (process.argv.includes("--send")) {
   const base = hook.replace(/\/api\/hook$/, ""), call = async (path, body) => { const res = await fetch(base + path, { method: "POST", headers: { authorization: `Bearer ${access}`, "content-type": "application/json" }, body: JSON.stringify(body) }); if (!res.ok) throw new Error(`${path} ${res.status}`); return res.json(); };
   const files = [];
-  for (const name of Object.keys(made)) files.push((await call("/api/upload", { name: `${name}.shortcut`, mime: "application/x-apple-shortcut", data: readFileSync(join(out, `${name}.shortcut`)).toString("base64") })).file);
+  for (const name of Object.keys(made).filter((n) => existsSync(join(out, `${n}.shortcut`)))) files.push((await call("/api/upload", { name: `${name}.shortcut`, mime: "application/x-apple-shortcut", data: readFileSync(join(out, `${name}.shortcut`)).toString("base64") })).file);
   await call("/api/note", { text: "Skróty do dodania na telefonie. Stuknij każdy plik i wybierz otwarcie w Skrótach.", files });
   console.log(`sent to the thread: ${files.length} files`);
 }
