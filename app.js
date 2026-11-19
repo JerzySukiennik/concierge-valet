@@ -3,6 +3,7 @@ import { TYPES, SWATCHES, defaults, mount, watch, look, poke, setState } from ".
 import { RM, anim, stagger, crossText, pressFeedback } from "./motion.js";
 import { createSheet, makePage } from "./sheet.js";
 import { CARD_KINDS, SIGNS, agendaNode, card as connectorCard, openImage, pickFile, thumb, trayNode } from "./cards.js";
+import { VoiceSession, startDictation, transcribe, voiceReady } from "./voice.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 const devPort = /^\d{4,5}$/.test(new URLSearchParams(location.search).get("api") || "") ? new URLSearchParams(location.search).get("api") : "8790";
@@ -33,7 +34,7 @@ const ORDER = ["valet", "atelier", "kurier"];
 const TABS = ["chat", "tasks", "make"];
 const STATES = [["idle", "Spokój"], ["listening", "Słucha"], ["thinking", "Myśli"], ["working", "Pracuje"], ["speaking", "Mówi"], ["asking", "Pyta"], ["happy", "Gotowe"], ["sleeping", "Śpi"]];
 const REPEAT = { daily: "codziennie", weekdays: "w dni robocze", weekly: "co tydzień" };
-const KINDS = { PDF: "Dokument PDF", DOC: "Dokument Word", DOCX: "Dokument Word", XLS: "Arkusz", XLSX: "Arkusz", CSV: "Arkusz", PPT: "Prezentacja", PPTX: "Prezentacja", HTML: "Strona", HTM: "Strona", MD: "Tekst", TXT: "Tekst", PNG: "Obraz", JPG: "Obraz", JPEG: "Obraz", WEBP: "Obraz", SVG: "Obraz", ZIP: "Archiwum" };
+const KINDS = { SKR: "Skrót na iPhone", PDF: "Dokument PDF", DOC: "Dokument Word", DOCX: "Dokument Word", XLS: "Arkusz", XLSX: "Arkusz", CSV: "Arkusz", PPT: "Prezentacja", PPTX: "Prezentacja", HTML: "Strona", HTM: "Strona", MD: "Tekst", TXT: "Tekst", PNG: "Obraz", JPG: "Obraz", JPEG: "Obraz", WEBP: "Obraz", SVG: "Obraz", ZIP: "Archiwum" };
 const ICON = {
   chev: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg>',
   updown: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/></svg>',
@@ -151,7 +152,7 @@ function skyNode(sky) {
 }
 
 function fileNode(f, full = false) {
-  const ext = (f.name.split(".").pop() || "").slice(0, 4).toUpperCase();
+  const ext = /\.shortcut$/i.test(f.name) ? "SKR" : (f.name.split(".").pop() || "").slice(0, 4).toUpperCase();
   const card = el("button", "card file");
   card.type = "button";
   card.dataset.open = f.id;
@@ -666,7 +667,87 @@ function grow() {
     if (stick && S.tab === "chat") toBottom();
   }
   input.style.overflowY = full > 132 ? "auto" : "hidden";
-  $("send").disabled = !input.value.trim() && !picks.length;
+  const empty = !input.value.trim() && !picks.length, canTalk = empty && voiceReady();
+  $("send").disabled = empty && !canTalk;
+  $("send").classList.toggle("talk", canTalk);
+  $("send").setAttribute("aria-label", canTalk ? "Rozmowa głosowa" : "Wyślij");
+}
+
+const VOICE = { base: API, token: () => S.token };
+const VOICE_TEXT = { connecting: "Łączę", listening: "Słucham", thinking: "Valet sprawdza", speaking: "Mówi" };
+const VOICE_FACE = { connecting: "thinking", listening: "listening", thinking: "working", speaking: "speaking" };
+let dict = null, talk = null, awake = null, lineWho = "", lineText = "";
+
+async function toggleDictation() {
+  const mic = $("mic");
+  if (mic.classList.contains("busy")) return;
+  if (!dict) {
+    try { dict = await startDictation(); } catch (e) { return toast("Nie mam dostępu do mikrofonu"); }
+    mic.classList.add("rec");
+    mic.setAttribute("aria-label", "Zakończ dyktowanie");
+    input.placeholder = "Słucham";
+    return;
+  }
+  const rec = dict;
+  dict = null;
+  mic.classList.remove("rec");
+  mic.classList.add("busy");
+  input.placeholder = "Przepisuję";
+  try {
+    const text = await transcribe(VOICE, await rec.stop());
+    if (text) { input.value = input.value.trim() ? `${input.value.replace(/\s+$/, "")} ${text}` : text; grow(); } else toast("Nic nie usłyszałem");
+  } catch (e) {
+    toast(e.message || "Nie udało się przepisać nagrania");
+  }
+  mic.classList.remove("busy");
+  mic.setAttribute("aria-label", "Dyktuj");
+  input.placeholder = "Wiadomość";
+}
+
+function voiceCaption(who, text) {
+  if (who === "end") { lineWho = ""; return; }
+  if (who !== lineWho) { lineWho = who; lineText = ""; }
+  lineText += text;
+  const line = $("voice-line");
+  line.textContent = lineText.trim().slice(-220);
+  line.classList.toggle("me", who === "me");
+}
+
+function closeVoice() {
+  const box = $("voice");
+  if (box.hidden) return;
+  awake?.release?.().catch(() => {});
+  awake = null;
+  const out = anim(box, [{ opacity: 1 }, { opacity: 0 }], { dur: 180, ease: "out", fill: "forwards" });
+  const done = () => { box.hidden = true; out?.cancel(); };
+  if (out) out.onfinish = done; else done();
+}
+
+async function openVoice() {
+  if (talk) return;
+  const box = $("voice"), face = $("voice-puck");
+  input.blur();
+  remount(face, S.settings.agents.valet.avatar);
+  $("voice-line").textContent = "";
+  $("voice-state").textContent = VOICE_TEXT.connecting;
+  $("voice-mute").setAttribute("aria-pressed", "false");
+  lineWho = "";
+  box.hidden = false;
+  anim(box, [{ opacity: 0, transform: "scale(1.03)" }, { opacity: 1, transform: "none" }], { dur: 240, ease: "out" });
+  navigator.wakeLock?.request("screen").then((lock) => { awake = lock; }).catch(() => {});
+  const session = new VoiceSession({
+    ...VOICE,
+    onState: (state) => { $("voice-state").textContent = VOICE_TEXT[state] || ""; setState(face, VOICE_FACE[state] || "idle"); },
+    onCaption: voiceCaption,
+    onLevel: (level) => $("voice-ring").style.setProperty("--lv", Math.min(1, level * 7).toFixed(2)),
+    onEnd: (message) => { if (talk === session) talk = null; closeVoice(); if (message) toast(message); sync().catch(() => {}); },
+  });
+  talk = session;
+  try {
+    await session.start();
+  } catch (e) {
+    session.end(e?.name === "NotAllowedError" ? "Nie mam dostępu do mikrofonu" : e?.message || "Nie udało się zacząć rozmowy");
+  }
 }
 
 const picks = [];
@@ -684,9 +765,9 @@ async function addPicks(list) {
   paintTray();
 }
 
-async function send() {
+async function send(tapped = false) {
   const text = input.value.trim(), sending = picks.splice(0);
-  if (!text && !sending.length) return;
+  if (!text && !sending.length) { if (tapped && voiceReady()) openVoice(); return; }
   paintTray();
   input.value = "";
   grow();
@@ -1547,7 +1628,7 @@ document.addEventListener("keydown", (e) => {
   if ((e.key === "Enter" || e.key === " ") && e.target === puck) { e.preventDefault(); poke(puck); }
 });
 
-$("composer").addEventListener("submit", (e) => { e.preventDefault(); send(); });
+$("composer").addEventListener("submit", (e) => { e.preventDefault(); send(e.submitter === $("send")); });
 input.addEventListener("input", () => {
   grow();
   if (S.status.state !== "idle") return;
@@ -1562,6 +1643,12 @@ input.addEventListener("keydown", (e) => {
 });
 $("send").addEventListener("pointerdown", (e) => e.preventDefault());
 $("attach").addEventListener("click", () => $("pick").click());
+$("mic").addEventListener("click", toggleDictation);
+$("voice-end").addEventListener("click", () => talk?.end());
+$("voice-mute").addEventListener("click", (e) => { const on = e.currentTarget.getAttribute("aria-pressed") !== "true"; e.currentTarget.setAttribute("aria-pressed", String(on)); talk?.mute(on); });
+$("voice-puck").addEventListener("click", () => talk?.interrupt());
+if (!voiceReady()) $("mic").hidden = true;
+grow();
 $("pick").addEventListener("change", (e) => { addPicks(e.target.files).then(() => { e.target.value = ""; }); });
 input.addEventListener("paste", (e) => { const files = [...(e.clipboardData?.files || [])]; if (files.length) { e.preventDefault(); addPicks(files); } });
 chat.addEventListener("scroll", () => { if (!scrollRaf) scrollRaf = requestAnimationFrame(onChatScroll); }, { passive: true });

@@ -105,4 +105,11 @@ for (const [name, body] of Object.entries(made)) {
   }
   if (!process.env.KEEP) rmSync(raw, { force: true });
 }
+if (process.argv.includes("--send")) {
+  const base = hook.replace(/\/api\/hook$/, ""), call = async (path, body) => { const res = await fetch(base + path, { method: "POST", headers: { authorization: `Bearer ${access}`, "content-type": "application/json" }, body: JSON.stringify(body) }); if (!res.ok) throw new Error(`${path} ${res.status}`); return res.json(); };
+  const files = [];
+  for (const name of Object.keys(made)) files.push((await call("/api/upload", { name: `${name}.shortcut`, mime: "application/x-apple-shortcut", data: readFileSync(join(out, `${name}.shortcut`)).toString("base64") })).file);
+  await call("/api/note", { text: "Skróty do dodania na telefonie. Stuknij każdy plik i wybierz otwarcie w Skrótach.", files });
+  console.log(`sent to the thread: ${files.length} files`);
+}
 console.log(`target: ${hook}`);

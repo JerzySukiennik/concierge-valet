@@ -6,7 +6,7 @@ import { chatTools, VERDICT } from "./tools.mjs";
 import { clockOf, findTitles, image, title, titleList, youtube } from "./connectors.mjs";
 import { calendarOn, changeEvent, createEvent, discover, listEvents, parts, removeEvent } from "./calendar.mjs";
 import { kaggleOn, recent as kaggleRecent, status as kaggleStatus, tail as kaggleTail } from "./kaggle.mjs";
-import { geminiOn, kindOf, readPost, watchBytes, watchYouTube } from "./media.mjs";
+import { geminiOn, kindOf, liveSetup, liveToken, readPost, transcribe, watchBytes, watchYouTube } from "./media.mjs";
 import { sendPush } from "./push.mjs";
 import { cost, dayKey, fromLocal, hm, human, isoLocal, json, local, nextAt, nextRepeat, parseLocal, sign } from "./util.mjs";
 
@@ -15,7 +15,7 @@ const MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"];
 const AVATARS = ["orbita", "buzka", "piksel"];
 const CHUNK = 1000000;
 const FILES = "SELECT * FROM files WHERE task IS NULL OR task >= 0 ORDER BY ts DESC LIMIT 60";
-const UPLOADS = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "application/pdf": "pdf", "text/plain": "txt", "text/markdown": "md", "text/csv": "csv" };
+const UPLOADS = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "application/pdf": "pdf", "text/plain": "txt", "text/markdown": "md", "text/csv": "csv", "application/x-apple-shortcut": "shortcut" };
 const b64 = (bytes) => { let out = ""; for (let i = 0; i < bytes.length; i += 32768) out += String.fromCharCode(...bytes.subarray(i, i + 32768)); return btoa(out); };
 const OUTSIDE = /^(whatsapp_read|whatsapp_chats|youtube_search|show_title|show_titles|watch_link)$/;
 const PERMIT = /(^|[^\p{L}])(tak|pozw[oó]l|pozwalam|zezw[oó]l|zezwalam|ok|okej|oki|dawaj|jasne|[sś]mia[lł]o|potwierdzam|zgoda|pewnie|niech|dobra|yes|allow)([^\p{L}]|$)/iu;
@@ -196,6 +196,7 @@ export class Valet extends DurableObject {
     }
     if (path === "/api/hook") return this.hook(req);
     if (path === "/api/media" && req.method === "POST") return this.media(req);
+    if (path === "/api/transcribe" && req.method === "POST") return this.dictation(req);
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     if (path === "/internal/task") return this.taskEvent(body);
 
@@ -298,6 +299,29 @@ export class Valet extends DurableObject {
         } catch (err) {
           return json({ ok: false, error: String(err?.message || err).slice(0, 200) }, 502);
         }
+      }
+      case "POST /api/note": {
+        const files = [];
+        for (const f of (Array.isArray(body.files) ? body.files : []).slice(0, 6)) {
+          const row = this.rows("SELECT id, ts, name, mime, size FROM files WHERE id = ? AND task = -1", String(f?.id || f || ""))[0];
+          if (row) files.push(row);
+        }
+        const text = String(body.text || "").trim().slice(0, 2000);
+        if (!text && !files.length) return json({ error: "empty" }, 400);
+        const m = this.post({ who: "agent", agent: "valet", text, data: files.length ? { files } : null });
+        return json({ id: m.id });
+      }
+      case "POST /api/voice/token": {
+        if (!geminiOn(this.env)) return json({ error: "Głos nie jest jeszcze podłączony." }, 503);
+        const st = this.settings();
+        try { return json(await liveToken(this.env, liveSetup(this.env, st.owner, st.agents.valet.name))); } catch (err) { console.error("voice", String(err?.message || err)); return json({ error: "Nie udało się zacząć rozmowy głosowej." }, 502); }
+      }
+      case "POST /api/voice/ask": {
+        const text = String(body.text || "").trim().slice(0, 4000);
+        if (!text) return json({ reply: "Nie usłyszałem pytania." });
+        const m = this.post({ who: "me", text, data: { via: "voice" } });
+        await this.ctx.storage.setAlarm(Date.now());
+        return json({ id: m.id, reply: (await this.replyTo(m.id, 70)) || "Valet jeszcze nad tym pracuje. Odpowiedź pojawi się w wątku." });
       }
       case "POST /api/skill/act": {
         const d = this.cardRows("skill", 7 * 1440).find((x) => x.row.id === +body.msg);
@@ -704,6 +728,31 @@ export class Valet extends DurableObject {
     await this.rearm();
   }
 
+  async dictation(req) {
+    if (!geminiOn(this.env)) return json({ error: "Dyktowanie nie jest jeszcze podłączone." }, 503);
+    const mime = (req.headers.get("content-type") || "audio/mp4").split(";")[0].trim();
+    const bytes = new Uint8Array(await req.arrayBuffer());
+    if (bytes.length < 800) return json({ text: "" });
+    if (bytes.length > 14e6) return json({ error: "Nagranie jest za długie." }, 413);
+    try {
+      const heard = await transcribe(this.env, b64(bytes), /^audio\//.test(mime) ? mime : "audio/mp4");
+      this.addSpend(heard.usd);
+      return json({ text: heard.text });
+    } catch (err) {
+      console.error("dictation", String(err?.message || err));
+      return json({ error: "Nie udało się przepisać nagrania." }, 502);
+    }
+  }
+
+  async replyTo(id, tries = 60) {
+    for (let i = 0; i < tries; i++) {
+      await new Promise((r) => setTimeout(r, 700));
+      const r = this.rows("SELECT text FROM msgs WHERE id > ? AND who = 'agent' AND kind = 'text' ORDER BY id LIMIT 1", id)[0];
+      if (r) return String(r.text).replace(/\*\*|__|`/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+    }
+    return "";
+  }
+
   async skillInstall(d) {
     const skill = d.data.skill;
     try {
@@ -800,11 +849,8 @@ export class Valet extends DurableObject {
     const m = this.post({ who: "me", text, data: { via: "hook", ...(files.length ? { files } : {}) } });
     await this.ctx.storage.setAlarm(Date.now());
     if (!wait) return json({ ok: true, id: m.id, reply: "Przekazane Valetowi." });
-    for (let i = 0; i < 34; i++) {
-      await new Promise((r) => setTimeout(r, 700));
-      const r = this.rows("SELECT text FROM msgs WHERE id > ? AND who = 'agent' AND kind = 'text' ORDER BY id LIMIT 1", m.id)[0];
-      if (r) return json({ ok: true, id: m.id, reply: String(r.text).replace(/\*\*|__|`/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") });
-    }
+    const reply = await this.replyTo(m.id, 34);
+    if (reply) return json({ ok: true, id: m.id, reply });
     return json({ ok: true, id: m.id, reply: "Valet jeszcze nad tym pracuje. Odpowiedź będzie w wątku." });
   }
 
@@ -821,7 +867,7 @@ export class Valet extends DurableObject {
         const label = `Attachment "${f.name}" from his message at ${hm(m.ts)}${m.id < fresh[0].id ? " (sent earlier, kept for reference)" : ""}:`;
         if (f.mime.startsWith("image/")) out.push({ type: "text", text: label }, { type: "image", source: { type: "base64", media_type: f.mime, data: b64(bytes) } });
         else if (f.mime === "application/pdf") out.push({ type: "text", text: label }, { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64(bytes) } });
-        else out.push({ type: "text", text: `${label}\n${new TextDecoder().decode(bytes).slice(0, 60000)}` });
+        else if (f.mime.startsWith("text/")) out.push({ type: "text", text: `${label}\n${new TextDecoder().decode(bytes).slice(0, 60000)}` });
       }
     }
     return out.slice(-16);
@@ -853,8 +899,8 @@ export class Valet extends DurableObject {
       `<background_tasks>\n${tasks.length ? tasks.map((t) => `#${t.id} "${t.title}": ${t.status}${t.step ? `, ${t.step}` : ""}`).join("\n") : "(none)"}\n</background_tasks>`,
       spend.today >= spend.limit ? "<budget>The daily API budget is used up. You are running on the small model, and new background tasks are refused until tomorrow. Tell him if he asks for one.</budget>" : "",
       `<thread>\n${prior.length ? prior.map(line).join("\n") : "(this is the start of the thread)"}\n</thread>`,
-      events.length ? `<events>\nThese arrived on their own. He has not seen them and did not ask about them.\n\n${events.map((e) => e.replace(/^\[ask [^\]]+\] /, "")).join("\n\n")}\n\nDecide what he needs. For WhatsApp messages: if something matters to him (a test, homework, a change of plans, something to bring or pay, a question addressed to him or one he can clearly answer), tell him in one or two sentences, naming the chat. When a reply from him would help, also prepare it with whatsapp_draft so he only has to approve it, and read the calendar first when the answer depends on dates. For a Claude Code session that finished a turn: tell him in one to three sentences what the session did or what it is asking, naming the session; pass a question on as a question and add what you would check or decide in his place. For a Claude Code session that waits for his permission or answer: the card already shows what it asks, so do not repeat it; say in one or two plain sentences what the command or the choice means for a person who does not read code and what you would watch out for, and if it is plainly routine and safe say just that. For a Kaggle notebook: tell him in one or two sentences that it finished or failed, and on a failure say in plain words what the log shows went wrong. Never answer a session yourself and never call code_send or code_answer in this turn. If nothing here is worth interrupting him, answer with exactly SKIP.\n</events>` : "",
-      fresh.length ? `<new_messages>\n${fresh.map((m) => `[${hm(m.ts)}] ${owner}: ${m.text || "(no text)"}${m.data?.files?.length ? ` [attached: ${m.data.files.map((f) => f.name).join(", ")}]` : ""}`).join("\n")}\n</new_messages>` : "<new_messages>\n(none: this turn was started by the events above)\n</new_messages>",
+      events.length ? `<events>\nThese arrived on their own. He has not seen them and did not ask about them.\n\n${events.map((e) => e.replace(/^\[ask [^\]]+\] /, "")).join("\n\n")}\n\nDecide what he needs, and stay quiet by default: every message from you interrupts him. For WhatsApp messages: write only when he himself has to know or do something (a test, homework, a deadline, a change of plans, something to bring or pay, a question put to him or one he can clearly answer), in one or two sentences, naming the chat. When a reply from him would help, also prepare it with whatsapp_draft so he only has to approve it, and read the calendar first when the answer depends on dates. A question or request addressed to a teacher or to somebody else, somebody else's own problem, and a follow-up to a matter the thread shows you already told him about are not his business: answer SKIP. Never write just to say that you are not answering or not preparing anything. For a Claude Code session that finished a turn: tell him in one to three sentences what the session did or what it is asking, naming the session; pass a question on as a question and add what you would check or decide in his place. For a Claude Code session that waits for his permission: the card already shows what it asks and he has been notified, so answer SKIP when the action is routine and safe (reading, a local preview, a build, tests, an edit inside the project); write only when he should think twice (deleting, pushing, deploying, sending, paying, something outside the project), and then say in one or two plain sentences what it does and what could go wrong. For a Claude Code session that waits for his answer to a question: add one or two sentences only if you can help him choose; otherwise SKIP. For a Kaggle notebook: tell him in one or two sentences that it finished or failed, and on a failure say in plain words what the log shows went wrong. Never answer a session yourself and never call code_send or code_answer in this turn. If nothing here is worth interrupting him, answer with exactly SKIP.\n</events>` : "",
+      fresh.length ? `<new_messages>\n${fresh.map((m) => `[${hm(m.ts)}] ${owner}${m.data?.via === "voice" ? " (said out loud; your answer will be spoken to him, so lead with the answer and keep it short and easy to say)" : ""}: ${m.text || "(no text)"}${m.data?.files?.length ? ` [attached: ${m.data.files.map((f) => f.name).join(", ")}]` : ""}`).join("\n")}\n</new_messages>` : "<new_messages>\n(none: this turn was started by the events above)\n</new_messages>",
     ].filter(Boolean).join("\n\n");
   }
 
@@ -935,7 +981,7 @@ export class Valet extends DurableObject {
     const model = budget.today >= budget.limit ? s.models.text : s.models.chat;
     if (fresh.length) this.status("thinking", "Myśli", true);
     this.drawn = 0;
-    this.turn = { first: fresh.length ? fresh[0].id : 0, text: fresh.map((m) => m.text).join("\n"), hook: fresh.some((m) => m.data?.via === "hook") };
+    this.turn = { first: fresh.length ? fresh[0].id : 0, text: fresh.map((m) => m.text).join("\n"), hook: fresh.some((m) => m.data?.via === "hook" || m.data?.via === "voice") };
     const seen = fresh.length ? this.attachments(fresh) : [];
     const messages = [{ role: "user", content: seen.length ? [...seen, { type: "text", text: this.context(fresh, cursor, events) }] : this.context(fresh, cursor, events) }];
     let shown = "", reply = "", sources = [];
@@ -1063,7 +1109,7 @@ export class Valet extends DurableObject {
     if (name === "skill_install") {
       const turn = this.turn || { first: 0, text: "" };
       if (!turn.first) return "Refused: a skill is installed only in a turn he started with his own message.";
-      if (turn.hook) return "Refused: this message came through a shortcut, and installing needs his approval in the app. Point him to the card.";
+      if (turn.hook) return "Refused: this message came by voice or through a shortcut, and installing needs his approval in the app. Point him to the card.";
       if (!INSTALL.test(turn.text)) return "Refused: his new message does not clearly say to install. Ask him in one short sentence, or point him to the button on the card.";
       const d = this.cardRows("skill", 60).filter((x) => x.data.skill?.state === "draft" && x.row.id < turn.first)[0];
       if (!d) return "No skill is waiting that he has already seen. If you drafted one in this turn, ask him to confirm first.";
@@ -1201,7 +1247,7 @@ export class Valet extends DurableObject {
       if (ask.kind === "permission") {
         if (decision !== "allow" && decision !== "deny") return "Refused: this session asks for a permission, so the decision is allow or deny.";
         if (decision === "allow" && !PERMIT.test(turn.text)) return "Refused: his new message does not clearly allow it. Ask him in one short sentence, or point him to the buttons on the card.";
-        if (decision === "allow" && turn.hook) return "Refused: this message came through a shortcut, and a permission needs his approval in the app. Point him to the card.";
+        if (decision === "allow" && turn.hook) return "Refused: this message came by voice or through a shortcut, and a permission needs his approval in the app. Point him to the card.";
         if (decision === "allow" && turn.outside) return "Refused: in this turn you read outside content, so a permission cannot be given from it. Point him to the button on the card.";
         const done = await this.codeAnswer(d, decision, {}, decision === "deny" ? String(input.text || "").slice(0, 600) : "");
         return done.state === "gone" ? `It did not go through: ${done.why}` : `Done: session "${ask.title}" got his ${decision === "allow" ? "permission and continues" : "refusal"}. Tell him in one sentence.`;
@@ -1216,7 +1262,7 @@ export class Valet extends DurableObject {
       return done.state === "gone" ? `It did not go through: ${done.why}` : `Done: session "${ask.title}" got his answer and continues. Tell him in one sentence.`;
     }
     if (!turn.first) return "Refused: a prompt goes to a Claude Code session only in a turn he started with his own message.";
-    if (turn.hook) return "Refused: this message came through a shortcut, and prompting a session needs a message written in the app. Tell him to send it from the app.";
+    if (turn.hook) return "Refused: this message came by voice or through a shortcut, and prompting a session needs a message written in the app. Tell him to send it from the app.";
     if (turn.outside) return "Refused: in this turn you read outside content (WhatsApp, the web or a catalogue), so nothing goes to Claude Code from it. Tell him exactly what you would send and ask him to confirm in his next message.";
     const text = String(input.text || "").trim().slice(0, 6000);
     if (!text) return "Refused: the prompt is empty.";
@@ -1244,7 +1290,7 @@ export class Valet extends DurableObject {
     const turn = this.turn || { first: 0, text: "" };
     if (name === "whatsapp_send") {
       if (!turn.first) return "Refused: nothing can be sent in a turn he did not start. Tell him what is waiting and ask.";
-      if (turn.hook) return "Refused: this message came through a shortcut, and sending needs his approval in the app. Tell him the card is waiting there.";
+      if (turn.hook) return "Refused: this message came by voice or through a shortcut, and sending needs his approval in the app. Tell him the card is waiting there.";
       if (!APPROVAL.test(turn.text)) return "Refused: his new message does not clearly say to send. Ask him in one short sentence, or point him to the send button on the card.";
       const list = this.waPending(turn.first);
       if (!list.length) return "There is no message waiting that he has already seen. If you drafted one in this turn, ask him to confirm it first.";

@@ -111,3 +111,47 @@ export async function readPost(id) {
     video: variants.length ? (variants.find((v) => (v.bitrate || 0) >= 600000) || variants[variants.length - 1]).url : "",
   };
 }
+
+const LIVE = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained";
+
+export function liveSetup(env, owner, agent) {
+  return {
+    model: `models/${env.GEMINI_LIVE_MODEL || "gemini-3.8-live"}`,
+    generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: env.GEMINI_LIVE_VOICE || "Kore" } }, languageCode: "pl-PL" } },
+    systemInstruction: { parts: [{ text: `You are the voice of ${agent}, the personal assistant of ${owner}. You speak with him out loud. Speak Polish unless he speaks another language, in short natural sentences, with no lists, no markdown and no reading out of links or symbols.
+You know nothing about his data yourself: ${agent} does, and it also acts for him. For every question, request or task call ask_valet with what he wants, written so it stands on its own (add what was said a moment ago if his sentence depends on it). The only things you answer alone are a greeting, a thank you, a request to repeat or to speak differently.
+When the answer comes back, tell it to him faithfully and briefly in your own spoken words. Never add facts, never say something was done unless the answer says so, and when the answer says something waits for his decision in the app, tell him that it waits there.
+If you did not catch what he said, ask him to say it again instead of guessing.` }] },
+    tools: [{ functionDeclarations: [{ name: "ask_valet", description: `Hand his request to ${agent}, which knows his calendar, memory, messages, files and sessions and can act for him. Returns the answer to say out loud.`, parameters: { type: "OBJECT", properties: { request: { type: "STRING", description: "What he wants, in his own words, complete enough to stand alone" } }, required: ["request"] } }] }],
+    inputAudioTranscription: {},
+    outputAudioTranscription: {},
+  };
+}
+
+export const liveToken = (env, setup) => withKeys(env, async (key) => {
+  const soon = (s) => new Date(Date.now() + s * 1000).toISOString();
+  const res = await fetch(`${API}/v1beta/auth_tokens`, { method: "POST", headers: { "x-goog-api-key": key, "content-type": "application/json" }, body: JSON.stringify({ uses: 1, expireTime: soon(1800), newSessionExpireTime: soon(90), bidiGenerateContentSetup: setup }) });
+  if (!res.ok) { const err = new Error(`Gemini refused a voice session (${res.status}): ${(await res.text()).slice(0, 160)}`); err.status = res.status; throw err; }
+  const d = await res.json();
+  if (!d.name) throw new Error("Gemini returned no voice token");
+  return { url: `${LIVE}?access_token=${encodeURIComponent(d.name)}`, setup };
+});
+
+export const transcribe = (env, bytes, mime) => withKeys(env, async (key) => {
+  let last;
+  for (const model of models(env)) {
+    let res;
+    try {
+      res = await fetch(`${API}/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        signal: AbortSignal.timeout(40000),
+        headers: { "x-goog-api-key": key, "content-type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ inline_data: { mime_type: mime, data: bytes } }, { text: "This is a dictated note, most likely in Polish. Write down exactly what the speaker means to say, in the language spoken: keep his words and his meaning, drop stutters, repeated words, false starts and filler sounds, and add punctuation. Do not answer it, do not translate it, do not add anything. If there is no speech, output nothing. Output only the text." }] }], generationConfig: { temperature: 0, maxOutputTokens: 2000 } }),
+      });
+    } catch (err) { last = new Error("Gemini did not answer in time"); continue; }
+    if (!res.ok) { last = new Error(`Gemini answered ${res.status}`); last.status = res.status; if ([404, 429, 500, 503].includes(res.status)) continue; throw last; }
+    const d = await res.json(), u = d.usageMetadata || {};
+    return { text: (d.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("").trim().slice(0, 6000), usd: ((u.promptTokenCount || 0) * 0.5 + (u.candidatesTokenCount || 0) * 3) / 1e6 };
+  }
+  throw last || new Error("the transcriber is not available");
+});

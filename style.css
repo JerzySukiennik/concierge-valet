@@ -242,7 +242,7 @@ body.behind #app { border-radius: 12px; overflow: hidden; }
 .bottom::before { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 14px; background: linear-gradient(transparent, var(--bg)); pointer-events: none; }
 .composer { padding: 6px 12px 6px; }
 .cbox { position: relative; }
-.cbox textarea { display: block; width: 100%; min-height: 40px; max-height: 132px; height: 40px; resize: none; border-radius: 20px; border: 1px solid var(--field-line); background: var(--field); padding: 8px 46px 8px 44px; line-height: 22px; font-size: 16px; outline: none; overflow-y: hidden; scrollbar-width: none; }
+.cbox textarea { display: block; width: 100%; min-height: 40px; max-height: 132px; height: 40px; resize: none; border-radius: 20px; border: 1px solid var(--field-line); background: var(--field); padding: 8px 82px 8px 44px; line-height: 22px; font-size: 16px; outline: none; overflow-y: hidden; scrollbar-width: none; }
 .cbox textarea:focus { border-color: var(--ghost-line); }
 .cbox textarea::placeholder { color: var(--muted); }
 .cbox .mirror { position: absolute; top: 0; left: 0; height: 0 !important; min-height: 0 !important; visibility: hidden; pointer-events: none; overflow: hidden; }
@@ -254,6 +254,30 @@ body.behind #app { border-radius: 12px; overflow: hidden; }
 .send.down:not(:disabled) { transform: scale(.86); transition: transform .1s ease-out; }
 .send:disabled { cursor: default; }
 .send svg { position: relative; width: 18px; height: 18px; stroke-width: 2.4; }
+.send .wave { display: none; }
+.send.talk .wave { display: block; }
+.send.talk .arrow { display: none; }
+.mic { position: absolute; right: 42px; bottom: 4px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); z-index: 1; transition: transform .12s ease-out, color .16s ease, background-color .16s ease; }
+.mic::after { content: ""; position: absolute; inset: -5px; }
+.mic:active { transform: scale(.86); }
+.mic svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.mic.rec { color: #fff; background: var(--accent-fill); animation: mic-rec 1s ease-in-out infinite alternate; }
+.mic.busy { opacity: .45; pointer-events: none; }
+@keyframes mic-rec { to { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent-fill) 22%, transparent); } }
+.voice { position: fixed; inset: 0; z-index: 40; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px; padding: calc(28px + env(safe-area-inset-top)) 26px calc(120px + env(safe-area-inset-bottom)); }
+.voice[hidden] { display: none; }
+.voice-state { min-height: 20px; font-size: 14px; font-weight: 600; letter-spacing: .02em; color: var(--muted); }
+.voice-ring { transform: scale(calc(1 + var(--lv, 0) * .16)); transition: transform .14s ease-out; }
+.voice .puck { --s: 172px; }
+.voice-line { margin: 0; min-height: 4.3em; max-width: 30ch; text-align: center; font-size: 19px; line-height: 1.42; font-weight: 500; overflow-wrap: anywhere; }
+.voice-line.me { color: var(--muted); }
+.voice-actions { position: absolute; left: 0; right: 0; bottom: calc(30px + env(safe-area-inset-bottom)); display: flex; justify-content: center; gap: 12px; }
+.voice-btn { display: flex; align-items: center; gap: 9px; height: 54px; padding: 0 22px; border-radius: 27px; background: var(--soft); color: var(--fg); font-size: 15px; font-weight: 600; transition: transform .12s ease-out, background-color .16s ease; }
+.voice-btn:active { transform: scale(.95); }
+.voice-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.voice-btn.end { background: var(--fg); color: var(--bg); }
+.voice-btn[aria-pressed="true"] { background: var(--accent-fill); color: #fff; }
+@media (prefers-reduced-motion: reduce) { .mic.rec { animation: none; } .voice-ring { transition: none; } }
 .attach { position: absolute; left: 4px; bottom: 4px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); z-index: 1; transition: transform .12s ease-out, color .16s ease; }
 .attach::after { content: ""; position: absolute; inset: -6px; }
 .attach:active { transform: scale(.86); color: var(--fg); }

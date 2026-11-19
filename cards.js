@@ -456,7 +456,9 @@ function askCard(m, ctx) {
       submit.addEventListener("click", () => finish({ act: "answer", answers: Object.fromEntries(a.questions.map((q) => [q.question, [...(picked.get(q.question) || [])].join(", ")])) }));
     }
   } else {
-    bubble.append(el("div", "kx-lead", `Prosi o zgodę na ${esc(TOOL_NAMES[a.tool] || a.tool)}${a.agent ? " (pomocniczy agent)" : ""}`));
+    const [, server, ...rest] = String(a.tool).split("__");
+    const what = TOOL_NAMES[a.tool] || (a.tool.startsWith("mcp__") && rest.length ? `narzędzie „${rest.join(" ").replace(/_/g, " ")}” (${server.replace(/_/g, " ")})` : a.tool);
+    bubble.append(el("div", "kx-lead", `Prosi o zgodę na ${esc(what)}${a.agent ? " (pomocniczy agent)" : ""}`));
     bubble.append(el("pre", "kx-cmd", esc(a.summary)));
   }
   card.append(bubble);
