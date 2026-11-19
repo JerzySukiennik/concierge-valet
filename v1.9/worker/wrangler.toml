@@ -1,0 +1,24 @@
+name = "concierge-valet-api"
+main = "src/index.mjs"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+APP_ORIGIN = "https://concierge-valet.gzowo.fun"
+CHAT_MODEL = "claude-sonnet-5-5"
+TEXT_MODEL = "claude-haiku-5-5"
+DOC_MODEL = "claude-opus-5-5"
+DAILY_USD = "6"
+KAGGLE_USER = "jerzysukiennik"
+
+[[durable_objects.bindings]]
+name = "VALET"
+class_name = "Valet"
+
+[[durable_objects.bindings]]
+name = "TASK"
+class_name = "Task"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Valet", "Task"]
