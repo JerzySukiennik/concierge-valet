@@ -18,7 +18,7 @@ A personal, proactive agent that lives in one message thread, in the spirit of t
 
 ## Pilot for Claude Code
 
-`pilot/` connects the agent to the Claude Code sessions open in the Claude desktop app on the owner's Mac. `pilot/mod` is a mod for the Claude app: it reports finished turns and takes prompts over a private Unix socket. `pilot/hub.mjs` is a small background service that keeps that socket and one bridge socket to the agent; `pilot/install.sh` installs it as a LaunchAgent. The agent can list sessions, read their latest messages and pass on a prompt, only in a turn the owner started. A prompt can name a Claude model: the session switches to it first and stays on it.
+`pilot/` connects the agent to the Claude Code sessions open in the Claude desktop app on the owner's Mac. `pilot/mod` is a mod for the Claude app: it reports finished turns and takes prompts over a private Unix socket. `pilot/hub.mjs` is a small background service that keeps that socket and one bridge socket to the agent; `pilot/install.sh` installs it as a LaunchAgent. The agent can list sessions, read their latest messages and pass on a prompt, only in a turn the owner started.
 
 ## Local development
 

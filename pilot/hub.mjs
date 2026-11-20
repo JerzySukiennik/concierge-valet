@@ -122,7 +122,7 @@ async function sendFile(path) {
 function touch(id, patch = {}) {
   let s = sessions.get(id);
   if (!s) {
-    s = { id, cwd: "", root: "", project: "", model: "", mod: 0, title: "", state: "idle", since: Date.now(), seen: Date.now(), last: "", queue: [], waiter: null, remote: false, asked: false };
+    s = { id, cwd: "", root: "", project: "", model: "", title: "", state: "idle", since: Date.now(), seen: Date.now(), last: "", queue: [], waiter: null, remote: false, asked: false };
     sessions.set(id, s);
     log("session", id.slice(0, 8), "joined");
   }
@@ -196,7 +196,7 @@ async function run(tool, input) {
     prune();
     const all = [...sessions.values()].sort((a, b) => b.since - a.since);
     listed = all.map((s) => s.id);
-    return { sessions: all.map((s, i) => ({ n: i + 1, title: label(s), project: s.project || "?", state: s.state, minutes: Math.max(0, Math.round((Date.now() - s.since) / 60000)), model: s.model, last: clip(s.last, 320) })) };
+    return { sessions: all.map((s, i) => ({ n: i + 1, title: label(s), project: s.project || "?", state: s.state, minutes: Math.max(0, Math.round((Date.now() - s.since) / 60000)), last: clip(s.last, 320) })) };
   }
   const hit = find(input.session);
   if (!hit.one) {
@@ -211,12 +211,11 @@ async function run(tool, input) {
   if (tool === "code.prompt") {
     const text = String(input.text || "").trim();
     if (!text) throw new Error("Pusty prompt.");
-    const state = s.state, model = String(input.model || "").trim().slice(0, 60);
-    if (model && s.mod < 5) throw new Error("Ta sesja ma starszą wersję łącznika i nie umie jeszcze zmienić modelu. Trzeba w niej wpisać /reload-plugins albo otworzyć ją ponownie. Prompt nie został wysłany.");
-    const done = await command(s, { kind: "prompt", text, ...(model ? { model } : {}) }, model ? 20000 : 15000);
+    const state = s.state;
+    await command(s, { kind: "prompt", text });
     s.asked = true;
-    log("prompt", s.id.slice(0, 8), `${text.length} chars`, model);
-    return { ...about, state, model: model ? (done.model === "pending" ? "pending" : "set") : "" };
+    log("prompt", s.id.slice(0, 8), `${text.length} chars`);
+    return { ...about, state };
   }
   throw new Error(`Hub nie zna polecenia ${tool}.`);
 }
@@ -229,7 +228,7 @@ function hello(force = false) {
 }
 
 async function event(body) {
-  const s = touch(String(body.session), { cwd: body.cwd, root: body.root, model: body.model, mod: +body.mod || undefined, title: clip(body.title, 80) });
+  const s = touch(String(body.session), { cwd: body.cwd, root: body.root, model: body.model, title: clip(body.title, 80) });
   if (body.kind === "hello") hello();
   else if (body.kind === "start") {
     s.state = "working";

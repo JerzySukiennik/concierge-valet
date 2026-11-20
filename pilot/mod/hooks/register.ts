@@ -1,14 +1,11 @@
 // valet-pilot: links this Claude app session to the Concierge Valet hub on the same Mac, so the owner can follow the session, prompt it and answer its questions and permission requests from his Valet thread while he is away from the Mac. Talks only to the hub's private Unix socket.
 import type { EngineInterface, Register } from 'claude-code'
 
-type Command = { id: string; kind: 'prompt' | 'read' | 'hello'; text?: string; count?: number; model?: string }
-type Outcome = { ok: boolean; data?: Record<string, unknown>; error?: string }
+type Command = { id: string; kind: 'prompt' | 'read' | 'hello'; text?: string; count?: number }
 type Answer = { decision?: string; answers?: Record<string, string>; text?: string }
 
 const AWAY_SECONDS = 120
 const BACK_SECONDS = 20
-const SWITCH_WAIT = 6000
-const MOD = 5
 const link = { sock: '', id: '', title: '', mode: '', live: false }
 
 async function hub<T>($: EngineInterface, method: string, path: string, body?: unknown): Promise<T | null> {
@@ -34,7 +31,7 @@ async function greet($: EngineInterface): Promise<void> {
     const first = (await $.session.messages()).find((m) => m.role === 'user' && m.text.trim())
     if (first) link.title = first.text.trim().replace(/\s+/g, ' ').slice(0, 60)
   }
-  tell($, 'hello', { cwd: await $.session.cwd(), root: await $.session.root(), model: await $.session.model(), mod: MOD })
+  tell($, 'hello', { cwd: await $.session.cwd(), root: await $.session.root(), model: await $.session.model() })
 }
 
 async function idle($: EngineInterface): Promise<number | null> {
@@ -76,41 +73,6 @@ function describe(tool: string, input: unknown): string {
   return text.slice(0, 1500)
 }
 
-function later($: EngineInterface, ms: number): Promise<'late'> {
-  return new Promise((resolve) => {
-    $.clock.after(ms, () => resolve('late'))
-  })
-}
-
-async function order($: EngineInterface, cmd: Command): Promise<Outcome> {
-  const text = cmd.text ?? ''
-  const want = cmd.model ?? ''
-  if (want && !(await $.session.model()).includes(want)) {
-    let said = ''
-    const run = $.command.run({ command: 'model', args: want }).then(
-      (out) => {
-        said = (out.text ?? '').slice(0, 200)
-        return 'ran' as const
-      },
-      (err: unknown) => {
-        said = String(err).slice(0, 200)
-        return 'failed' as const
-      },
-    )
-    if ((await Promise.race([run, later($, SWITCH_WAIT)])) === 'late') {
-      void run.then(() => {
-        void greet($)
-        void $.prompt.submit({ text, asUser: true })
-      })
-      return { ok: true, data: { model: 'pending' } }
-    }
-    if (!(await $.session.model()).includes(want)) return { ok: false, error: `The session did not switch to ${want}${said ? `: ${said}` : ''}. The prompt was not sent.` }
-    void greet($)
-  }
-  void $.prompt.submit({ text, asUser: true })
-  return { ok: true, data: { model: await $.session.model() } }
-}
-
 async function loop($: EngineInterface): Promise<void> {
   let wait = 5000
   try {
@@ -122,7 +84,8 @@ async function loop($: EngineInterface): Promise<void> {
     if (cmd?.kind === 'hello') {
       await greet($)
     } else if (cmd?.kind === 'prompt' && cmd.text) {
-      await hub($, 'POST', '/result', { id: cmd.id, ...(await order($, cmd)) })
+      void $.prompt.submit({ text: cmd.text, asUser: true })
+      await hub($, 'POST', '/result', { id: cmd.id, ok: true, data: {} })
     } else if (cmd?.kind === 'read') {
       const all = await $.session.messages()
       const messages = all.slice(-(cmd.count ?? 8)).map((m) => ({

@@ -405,7 +405,7 @@ function codeCard(m) {
   bubble.append(el("div", "kx-text", chatMarkup(m.text)));
   card.append(bubble);
   const state = { queued: "Przekazane, ruszy po bieżącej turze", working: "Przekazane, ruszy po bieżącej turze", running: "Sesja pracuje", done: `Sesja skończyła${c.minutes ? ` po ${c.minutes} min` : ""}` }[c.state] || "Przekazane";
-  card.append(el("div", "kx-evfoot", `${c.state === "running" ? '<i class="kx-dot" aria-hidden="true"></i>' : ""}<span class="kx-state">${esc(state)} · ${esc(c.project)}${c.model ? ` · ${esc(c.model)}` : ""}</span>`));
+  card.append(el("div", "kx-evfoot", `${c.state === "running" ? '<i class="kx-dot" aria-hidden="true"></i>' : ""}<span class="kx-state">${esc(state)} · ${esc(c.project)}</span>`));
   return card;
 }
 

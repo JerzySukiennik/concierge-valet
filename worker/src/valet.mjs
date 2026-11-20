@@ -12,7 +12,6 @@ import { HAIKU, cost, dayKey, fromLocal, hm, human, isoLocal, json, local, nextA
 
 const PIXELS = ["..1111..", ".114411.", "11111111", ".22..22.", ".22..22.", "........", ".3....3.", "..3333.."];
 const MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"];
-const CODE_MODELS = { mythos: ["claude-mythos-5-2", "Mythos 5.2"], fable: ["claude-fable-5-2", "Fable 5.2"], opus: ["claude-opus-5-5", "Opus 5.5"], sonnet: ["claude-sonnet-5-5", "Sonnet 5.5"], haiku: ["claude-haiku-5-5", "Haiku 5.5"] };
 const AVATARS = ["orbita", "buzka", "piksel"];
 const CHUNK = 1000000;
 const FILES = "SELECT * FROM files WHERE task IS NULL OR task >= 0 ORDER BY ts DESC LIMIT 60";
@@ -1249,7 +1248,7 @@ export class Valet extends DurableObject {
     if (name === "code_sessions") {
       const d = await this.bridgeCall("code.sessions", {});
       if (!d.sessions?.length) return "No Claude Code session is open in the Claude app on his Mac right now.";
-      return `Live Claude Code sessions in the Claude app on his Mac:\n${d.sessions.map((x) => `${x.n}. "${x.title}" in project ${x.project}: ${x.state === "working" ? "working" : "idle"} for ${x.minutes} min${x.model ? `, model ${x.model}` : ""}${x.last ? `\n   its last message: ${x.last}` : ""}`).join("\n")}\nName a session by its number or by a clear part of its title or project.`;
+      return `Live Claude Code sessions in the Claude app on his Mac:\n${d.sessions.map((x) => `${x.n}. "${x.title}" in project ${x.project}: ${x.state === "working" ? "working" : "idle"} for ${x.minutes} min${x.last ? `\n   its last message: ${x.last}` : ""}`).join("\n")}\nName a session by its number or by a clear part of its title or project.`;
     }
     if (name === "code_read") {
       const d = await this.bridgeCall("code.read", { session: String(input.session || "").slice(0, 120), count: Math.max(2, Math.min(30, +input.count || 8)) });
@@ -1284,11 +1283,10 @@ export class Valet extends DurableObject {
     if (turn.outside) return "Refused: in this turn you read outside content (WhatsApp, the web or a catalogue), so nothing goes to Claude Code from it. Tell him exactly what you would send and ask him to confirm in his next message.";
     const text = String(input.text || "").trim().slice(0, 6000);
     if (!text) return "Refused: the prompt is empty.";
-    const model = CODE_MODELS[String(input.model || "")];
-    const d = await this.bridgeCall("code.prompt", { session: String(input.session || "").slice(0, 120), text, ...(model ? { model: model[0] } : {}) });
+    const d = await this.bridgeCall("code.prompt", { session: String(input.session || "").slice(0, 120), text });
     if (d.candidates) return which(d);
-    this.post({ who: "agent", agent: "valet", kind: "code", text, data: { code: { sid: d.sid, title: d.title, project: d.project, state: d.state === "working" ? "queued" : "running", ...(model ? { model: model[1] } : {}) } }, reply_to: origin });
-    return `Passed on to session "${d.title}" (${d.project}).${model ? (d.model === "pending" ? ` It switches to ${model[1]} right after its current turn and stays on it.` : ` It now runs on ${model[1]} and stays on it.`) : ""} ${d.state === "working" ? "The session is in the middle of a turn, so the prompt waits in its queue and runs right after." : "The session started working on it."} A card with the exact prompt is in the thread, so do not repeat it; say in one sentence that it went and that you will report when the session finishes.`;
+    this.post({ who: "agent", agent: "valet", kind: "code", text, data: { code: { sid: d.sid, title: d.title, project: d.project, state: d.state === "working" ? "queued" : "running" } }, reply_to: origin });
+    return `Passed on to session "${d.title}" (${d.project}). ${d.state === "working" ? "The session is in the middle of a turn, so the prompt waits in its queue and runs right after." : "The session started working on it."} A card with the exact prompt is in the thread, so do not repeat it; say in one sentence that it went and that you will report when the session finishes.`;
   }
 
   async whatsappTool(name, input) {

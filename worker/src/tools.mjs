@@ -186,12 +186,11 @@ const CUSTOM = [
   },
   {
     name: "code_send",
-    description: "Pass a prompt into one Claude Code session in the Claude app on his Mac, as if he had typed it there. The session starts working on it at once, or right after its current turn. Can switch the session to another Claude model first, and the session then stays on that model. Only for what he asked you to tell the session in this turn.",
+    description: "Pass a prompt into one Claude Code session in the Claude app on his Mac, as if he had typed it there. The session starts working on it at once, or right after its current turn. Only for what he asked you to tell the session in this turn.",
     strict: true,
     input_schema: obj({
       session: { type: "string", description: "Session number from code_sessions, or a clear part of its title or project" },
       text: { type: "string", description: "The full prompt for Claude Code, in Polish unless he wrote it in another language: his instruction made precise, with the details he gave you. No greeting and no mention of Valet." },
-      model: { type: "string", enum: ["same", "mythos", "fable", "opus", "sonnet", "haiku"], description: "The Claude model the session switches to before it runs this prompt. Only when he named a model for this request in this turn; same in every other case, which leaves the session on the model it has." },
     }),
   },
   {
