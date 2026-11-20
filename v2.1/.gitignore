@@ -1,0 +1,12 @@
+.DS_Store
+node_modules
+.wrangler
+.dev.vars
+.env
+Niepotrzebne/ref/
+Niepotrzebne/shots/
+Niepotrzebne/test-out/
+Niepotrzebne/**/podglad*.png
+.prod.vars
+macapp/build/
+Niepotrzebne/skroty/
