@@ -109,6 +109,8 @@ export class Dictation {
   }
 }
 
+const SILENCE = Array.from({ length: 6 }, () => frame(new Int16Array(800).buffer));
+
 export class VoiceSession {
   constructor({ base, token, onState = () => {}, onLevel = () => {}, onEnd = () => {} }) {
     Object.assign(this, { base, token, onState, onLevel, onEnd });
@@ -120,6 +122,15 @@ export class VoiceSession {
     this.busy = 0;
     this.live = false;
     this.over = false;
+    this.queue = [...SILENCE];
+    this.tape = [];
+    this.cut = 0;
+    this.model = "";
+    this.swaps = 0;
+    this.replay = false;
+    this.startedAt = 0;
+    this.loudAt = 0;
+    this.floor = 0.01;
   }
 
   set(state) {
@@ -130,22 +141,79 @@ export class VoiceSession {
 
   async start() {
     this.set("connecting");
-    this.mic = await microphone((data) => {
-      const open = this.live && !this.muted && !this.sources.size && !this.busy;
-      this.onLevel(open ? data.level : 0);
-      if (open && this.ws?.readyState === 1) this.ws.send(frame(data.pcm));
-    });
-    const ticket = await post(this.base, this.token, "/api/voice/token", {});
+    this.mic = await microphone((data) => this.hear(data));
+    this.set("listening");
+    await this.connect("");
+  }
+
+  async connect(slow) {
+    const ticket = await post(this.base, this.token, "/api/voice/token", slow ? { slow } : {});
     if (this.over) return;
-    this.ws = new WebSocket(ticket.url);
-    this.ws.addEventListener("open", () => this.ws.send(JSON.stringify({ setup: ticket.setup })));
-    this.ws.addEventListener("message", async (e) => this.handle(await read(e)));
-    this.ws.addEventListener("close", () => this.end(this.live ? "" : "Nie udało się połączyć z głosem."));
-    this.ws.addEventListener("error", () => {});
+    this.model = ticket.model || "";
+    const ws = new WebSocket(ticket.url);
+    this.ws = ws;
+    ws.addEventListener("open", () => ws.send(JSON.stringify({ setup: ticket.setup })));
+    ws.addEventListener("message", async (e) => { const m = await read(e); if (ws === this.ws) this.handle(m); });
+    ws.addEventListener("close", () => { if (ws === this.ws) this.end(this.live ? "" : "Nie udało się połączyć z głosem."); });
+    ws.addEventListener("error", () => {});
+  }
+
+  push(out) {
+    this.ws.send(out);
+    this.tape.push(out);
+    if (this.tape.length > 600) { this.tape.shift(); this.cut++; }
+  }
+
+  hear(data) {
+    if (this.over) return;
+    if (!this.live) {
+      this.onLevel(this.muted ? 0 : data.level);
+      if (!this.muted && this.queue.length < 600) this.queue.push(frame(data.pcm));
+      return;
+    }
+    const open = !this.muted && !this.sources.size && !this.busy;
+    this.onLevel(open ? data.level : 0);
+    if (!open || this.ws?.readyState !== 1) return;
+    this.push(frame(data.pcm));
+    const now = Date.now();
+    this.floor = Math.min(data.level, this.floor * 1.01 + 0.0001);
+    if (data.level > Math.max(0.012, this.floor * 3)) this.loudAt = now;
+    if (this.startedAt && now - this.startedAt > 2200 && now - this.loudAt > 1900) this.swap();
+  }
+
+  async swap() {
+    this.startedAt = 0;
+    if (this.swaps >= 2) return this.end("Głos teraz nie odpowiada. Spróbuj za chwilę.");
+    this.swaps++;
+    const old = this.ws;
+    this.live = false;
+    this.replay = true;
+    this.queue = [...SILENCE, ...this.tape];
+    this.ws = null;
+    try { old.close(); } catch (e) {}
+    this.set("thinking");
+    try { await this.connect(this.model); } catch (err) { this.end("Głos przestał odpowiadać. Spróbuj jeszcze raz."); }
   }
 
   handle(m) {
-    if (m.setupComplete) { this.live = true; return this.set("listening"); }
+    if (m.setupComplete) {
+      this.live = true;
+      this.tape = [];
+      this.cut = 0;
+      for (const out of this.queue.splice(0)) this.push(out);
+      this.loudAt = Date.now();
+      if (!this.replay) return this.set("listening");
+      return void setTimeout(() => { if (this.replay) { this.replay = false; this.set("listening"); } }, 7000);
+    }
+    const heard = m.voiceActivity;
+    if (heard?.type === "ACTIVITY_START") {
+      this.startedAt = Date.now();
+      const spare = Math.max(0, Math.floor(parseFloat(heard.audioOffset) * 20) - 10 - this.cut);
+      this.tape.splice(0, spare);
+      this.cut += spare;
+    }
+    if (heard?.type === "ACTIVITY_END") this.startedAt = 0;
+    if (m.toolCall || m.serverContent?.modelTurn) { this.startedAt = 0; this.replay = false; this.cut += this.tape.length; this.tape = []; }
     if (m.toolCall) return void this.ask(m.toolCall.functionCalls || []);
     if (m.goAway) return this.end("Rozmowa trwała długo, więc ją zakończyłem. Możesz zacząć nową.");
     const c = m.serverContent;

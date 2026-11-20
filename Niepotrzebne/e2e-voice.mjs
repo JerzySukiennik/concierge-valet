@@ -69,18 +69,23 @@ if (!only || only === "--send") {
 }
 
 if (!only || only === "--talk") {
-  const said = speech("pytanie", "Cześć Valet. Jaka jest jutro pogoda w Warszawie?");
+  const said = speech("pytanie", process.env.VALET_ASK || "Cześć Valet. Jaka jest jutro pogoda w Warszawie?");
   const { browser, page, errors } = await open(said.wav);
   await page.waitForTimeout(1500);
   const before = await page.evaluate(() => document.querySelectorAll("#thread > *").length);
-  let audio = 0, asked = "";
+  let audio = 0, asked = "", t0 = 0;
+  const marks = {};
+  const mark = (k) => { if (!(k in marks) && t0) marks[k] = Date.now() - t0; };
   page.on("websocket", (ws) => {
     if (!ws.url().includes("generativelanguage")) return;
-    ws.on("framereceived", (f) => { const p = typeof f.payload === "string" ? f.payload : f.payload.toString(); if (p.includes("inlineData")) audio++; const m = /"request":\s*"([^"]{0,200})/.exec(p); if (m) asked = m[1]; });
+    ws.on("framereceived", (f) => { const p = typeof f.payload === "string" ? f.payload : f.payload.toString(); if (p.includes("inlineData")) { audio++; mark(marks.toolResponse ? "answerAudio" : "firstAudio"); } if (p.includes("toolCall")) mark("toolCall"); const m = /"request":\s*"([^"]{0,200})/.exec(p); if (m) asked = m[1]; });
+    ws.on("framesent", (f) => { const p = typeof f.payload === "string" ? f.payload : f.payload.toString(); if (p.includes("toolResponse")) mark("toolResponse"); });
   });
   await page.locator("#send").tap();
   await page.waitForSelector("#voice:not([hidden])", { timeout: 8000 });
-  const seen = new Set(), t0 = Date.now();
+  const seen = new Set();
+  t0 = Date.now();
+  marks.speechEnds = said.ms;
   let spoke = 0;
   while (Date.now() - t0 < 80000) {
     const s = await page.evaluate(() => ({ hidden: document.getElementById("voice").hidden, state: document.getElementById("voice-state").textContent }));
@@ -92,7 +97,7 @@ if (!only || only === "--talk") {
   }
   await page.locator("#voice-end").tap();
   await page.waitForTimeout(2500);
-  report.talk = { states: [...seen], firstSpeechMs: spoke, audioFrames: audio, askedValet: asked, captionShown: await page.locator("#voice-line").count(), closed: await page.evaluate(() => document.getElementById("voice").hidden), threadGrewBy: (await page.evaluate(() => document.querySelectorAll("#thread > *").length)) - before, errors };
+  report.talk = { states: [...seen], firstSpeechMs: spoke, marks, audioFrames: audio, askedValet: asked, captionShown: await page.locator("#voice-line").count(), closed: await page.evaluate(() => document.getElementById("voice").hidden), threadGrewBy: (await page.evaluate(() => document.querySelectorAll("#thread > *").length)) - before, errors };
   await browser.close();
 }
 

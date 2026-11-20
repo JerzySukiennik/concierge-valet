@@ -114,15 +114,19 @@ export async function readPost(id) {
 
 const LIVE = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained";
 
-export function liveSetup(env, owner, agent) {
+export const liveModels = (env) => String(env.GEMINI_LIVE_MODELS || "gemini-3.1-flash-live-preview,gemini-3.8-live").split(",").map((m) => m.trim()).filter(Boolean);
+
+export function liveSetup(env, owner, agent, model) {
   return {
-    model: `models/${env.GEMINI_LIVE_MODEL || "gemini-3.8-live"}`,
+    model: `models/${model || liveModels(env)[0]}`,
+    realtimeInputConfig: { automaticActivityDetection: { endOfSpeechSensitivity: "END_SENSITIVITY_HIGH", silenceDurationMs: 600 } },
     generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: env.GEMINI_LIVE_VOICE || "Kore" } }, languageCode: "pl-PL" } },
     systemInstruction: { parts: [{ text: `You are the voice of ${agent}, the personal assistant of ${owner}. You speak with him out loud. Speak Polish unless he speaks another language, in short natural sentences, with no lists, no markdown and no reading out of links or symbols.
-You know nothing about his data yourself: ${agent} does, and it also acts for him. For every question, request or task call ask_valet with what he wants, in the language he spoke and as close to his words as you can, never translated; add what was said a moment ago only if his sentence depends on it. The only things you answer alone are a greeting, a thank you, a request to repeat or to speak differently.
+You know nothing about his data yourself: ${agent} does, and it also acts for him. For every question, request or task call ask_valet with what he wants, written in Polish word for word as he said it; add what was said a moment ago only if his sentence depends on it. Writing his Polish sentence in English is a mistake: "Co mam jutro w kalendarzu?" is passed as "Co mam jutro w kalendarzu?", never as "What's on my calendar tomorrow?". Only when he really spoke English do you pass English. The only things you answer alone are a greeting, a thank you, a request to repeat or to speak differently.
 When the answer comes back, tell it to him faithfully and briefly in your own spoken words. Never add facts, never say something was done unless the answer says so, and when the answer says something waits for his decision in the app, tell him that it waits there.
+He speaks Polish, sometimes English. Speech that sounds like any other language is Polish heard badly: never pass on or answer in Spanish, Russian or another language.
 If you did not catch what he said, ask him to say it again instead of guessing.` }] },
-    tools: [{ functionDeclarations: [{ name: "ask_valet", description: `Hand his request to ${agent}, which knows his calendar, memory, messages, files and sessions and can act for him. Returns the answer to say out loud.`, parameters: { type: "OBJECT", properties: { request: { type: "STRING", description: "What he wants, in the language he spoke and in his own words, complete enough to stand alone" } }, required: ["request"] } }] }],
+    tools: [{ functionDeclarations: [{ name: "ask_valet", description: `Hand his request to ${agent}, which knows his calendar, memory, messages, files and sessions and can act for him. Returns the answer to say out loud.`, parameters: { type: "OBJECT", properties: { request: { type: "STRING", description: "What he wants, in Polish exactly as he said it (English only if he spoke English), complete enough to stand alone" } }, required: ["request"] } }] }],
   };
 }
 

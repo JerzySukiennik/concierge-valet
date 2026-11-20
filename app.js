@@ -6,6 +6,8 @@ import { CARD_KINDS, SIGNS, agendaNode, card as connectorCard, openImage, pickFi
 import { Dictation, VoiceSession, voiceReady } from "./voice.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
+const TOUCH = matchMedia("(pointer: coarse)");
+let dragY = null;
 const devPort = /^\d{4,5}$/.test(new URLSearchParams(location.search).get("api") || "") ? new URLSearchParams(location.search).get("api") : "8790";
 const API = LOCAL ? `http://127.0.0.1:${devPort}` : "https://concierge-valet-api.kalakasanyt.workers.dev";
 const $ = (id) => document.getElementById(id);
@@ -792,6 +794,7 @@ async function send(tapped = false) {
   paintTray();
   input.value = "";
   grow();
+  if (TOUCH.matches) input.blur();
   clearTimeout(listenTimer);
   local = "";
   look(puck, 0, 0);
@@ -1660,7 +1663,7 @@ input.addEventListener("input", () => {
   listenTimer = setTimeout(() => { if (local === "listening") { local = ""; look(puck, 0, 0); paintStatus(); } }, 1500);
 });
 input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey && !e.isComposing && matchMedia("(pointer: fine)").matches) { e.preventDefault(); send(); }
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
 $("send").addEventListener("pointerdown", (e) => e.preventDefault());
 $("attach").addEventListener("click", () => $("pick").click());
@@ -1676,6 +1679,8 @@ grow();
 $("pick").addEventListener("change", (e) => { addPicks(e.target.files).then(() => { e.target.value = ""; }); });
 input.addEventListener("paste", (e) => { const files = [...(e.clipboardData?.files || [])]; if (files.length) { e.preventDefault(); addPicks(files); } });
 chat.addEventListener("scroll", () => { if (!scrollRaf) scrollRaf = requestAnimationFrame(onChatScroll); }, { passive: true });
+chat.addEventListener("touchstart", (e) => { dragY = document.activeElement === input ? e.touches[0].clientY : null; }, { passive: true });
+chat.addEventListener("touchmove", (e) => { if (dragY !== null && e.touches[0].clientY - dragY > 14) { dragY = null; input.blur(); } }, { passive: true });
 
 $("pair-form").addEventListener("submit", async (e) => {
   e.preventDefault();

@@ -6,12 +6,13 @@ import { chatTools, VERDICT } from "./tools.mjs";
 import { clockOf, findTitles, image, title, titleList, youtube } from "./connectors.mjs";
 import { calendarOn, changeEvent, createEvent, discover, listEvents, parts, removeEvent } from "./calendar.mjs";
 import { kaggleOn, recent as kaggleRecent, status as kaggleStatus, tail as kaggleTail } from "./kaggle.mjs";
-import { dictationSetup, geminiOn, kindOf, liveSetup, liveToken, readPost, watchBytes, watchYouTube } from "./media.mjs";
+import { dictationSetup, geminiOn, kindOf, liveModels, liveSetup, liveToken, readPost, watchBytes, watchYouTube } from "./media.mjs";
 import { sendPush } from "./push.mjs";
-import { cost, dayKey, fromLocal, hm, human, isoLocal, json, local, nextAt, nextRepeat, parseLocal, sign } from "./util.mjs";
+import { HAIKU, cost, dayKey, fromLocal, hm, human, isoLocal, json, local, nextAt, nextRepeat, parseLocal, sign } from "./util.mjs";
 
 const PIXELS = ["..1111..", ".114411.", "11111111", ".22..22.", ".22..22.", "........", ".3....3.", "..3333.."];
 const MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"];
+const CODE_MODELS = { mythos: ["claude-mythos-5-2", "Mythos 5.2"], fable: ["claude-fable-5-2", "Fable 5.2"], opus: ["claude-opus-5-5", "Opus 5.5"], sonnet: ["claude-sonnet-5-5", "Sonnet 5.5"], haiku: ["claude-haiku-5-5", "Haiku 5.5"] };
 const AVATARS = ["orbita", "buzka", "piksel"];
 const CHUNK = 1000000;
 const FILES = "SELECT * FROM files WHERE task IS NULL OR task >= 0 ORDER BY ts DESC LIMIT 60";
@@ -51,7 +52,7 @@ function shortId(text) {
 function defaults(env) {
   return {
     owner: "Jurek",
-    models: { chat: env.CHAT_MODEL || MODELS[0], text: env.TEXT_MODEL || MODELS[1], docs: env.DOC_MODEL || MODELS[2] },
+    models: { chat: env.CHAT_MODEL || MODELS[0], text: env.TEXT_MODEL || MODELS[1], docs: env.DOC_MODEL || MODELS[2], voice: env.VOICE_MODEL || MODELS[1] },
     dailyUsd: +(env.DAILY_USD || 6),
     city: { name: "Warszawa", lat: 52.23, lon: 21.01 },
     briefs: { daily: true, weekly: true, hour: 7, minute: 0 },
@@ -230,7 +231,7 @@ export class Valet extends DurableObject {
       }
       case "POST /api/settings": {
         const cur = this.get("settings", {}), next = { ...cur };
-        if (body.models) next.models = { ...cur.models, ...Object.fromEntries(Object.entries(body.models).filter(([k, v]) => ["chat", "text", "docs"].includes(k) && MODELS.includes(v))) };
+        if (body.models) next.models = { ...cur.models, ...Object.fromEntries(Object.entries(body.models).filter(([k, v]) => ["chat", "text", "docs", "voice"].includes(k) && MODELS.includes(v))) };
         if (body.dailyUsd !== undefined) next.dailyUsd = Math.max(0.5, Math.min(50, +body.dailyUsd || 6));
         if (body.briefs) next.briefs = { ...cur.briefs, daily: !!body.briefs.daily, weekly: !!body.briefs.weekly, hour: Math.max(0, Math.min(23, +body.briefs.hour || 7)), minute: 0 };
         if (body.calendar) {
@@ -315,7 +316,11 @@ export class Valet extends DurableObject {
       case "POST /api/voice/token": {
         if (!geminiOn(this.env)) return json({ error: "Głos nie jest jeszcze podłączony." }, 503);
         const st = this.settings();
-        try { return json(await liveToken(this.env, body.mode === "dictate" ? dictationSetup(this.env) : liveSetup(this.env, st.owner, st.agents.valet.name))); } catch (err) { console.error("voice", String(err?.message || err)); return json({ error: body.mode === "dictate" ? "Nie udało się zacząć dyktowania." : "Nie udało się zacząć rozmowy głosowej." }, 502); }
+        if (body.mode === "dictate") {
+          try { return json(await liveToken(this.env, dictationSetup(this.env))); } catch (err) { console.error("voice", String(err?.message || err)); return json({ error: "Nie udało się zacząć dyktowania." }, 502); }
+        }
+        const live = this.liveModel(String(body.slow || ""));
+        try { return json({ ...(await liveToken(this.env, liveSetup(this.env, st.owner, st.agents.valet.name, live))), model: live }); } catch (err) { console.error("voice", String(err?.message || err)); return json({ error: "Nie udało się zacząć rozmowy głosowej." }, 502); }
       }
       case "POST /api/voice/ask": {
         const text = String(body.text || "").trim().slice(0, 4000);
@@ -957,13 +962,14 @@ export class Valet extends DurableObject {
   async converse(model, messages, turn, origin, onLabel = () => {}) {
     let shown = "", reply = "", sources = [];
     for (let i = 0; i < 8; i++) {
+      const began = Date.now();
       const res = await ask(this.env, {
         model,
         max_tokens: 16000,
         cache_control: { type: "ephemeral" },
         system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral", ttl: "1h" } }],
-        tools: chatTools(model),
-        thinking: { type: "adaptive" },
+        tools: chatTools(model, !turn.voice),
+        thinking: turn.voice ? { type: model === HAIKU ? "disabled" : "between_tools" } : { type: "adaptive" },
         output_config: { effort: "low" },
         messages,
       }, (e) => {
@@ -973,7 +979,7 @@ export class Valet extends DurableObject {
         onLabel(text);
       });
       this.addSpend(cost(res.usage, res.model || model));
-      console.log("chat usage", i, res.stop_reason, cost(res.usage, res.model || model).toFixed(4), JSON.stringify(res.usage));
+      console.log("chat usage", i, res.model || model, res.stop_reason, `${Date.now() - began}ms`, cost(res.usage, res.model || model).toFixed(4), res.content.filter((b) => b.type === "tool_use").map((b) => b.name).join(",") || "-", JSON.stringify({ in: res.usage.input_tokens, out: res.usage.output_tokens, read: res.usage.cache_read_input_tokens, write: res.usage.cache_creation_input_tokens, think: res.usage.output_tokens_details?.thinking_tokens }));
       if (res.stop_reason === "refusal") { reply = "Tego nie mogę zrobić."; break; }
       messages.push({ role: "assistant", content: res.content });
       if (res.content.some((b) => b.type === "server_tool_use")) turn.outside = true;
@@ -997,9 +1003,20 @@ export class Valet extends DurableObject {
     return { reply, sources };
   }
 
+  voiceModel() {
+    const s = this.settings(), budget = this.spend();
+    return budget.today >= budget.limit ? s.models.text : s.models.voice;
+  }
+
+  liveModel(slow) {
+    const list = liveModels(this.env), marks = this.get("voiceSlow", {}), now = Date.now();
+    if (slow && list.includes(slow)) { marks[slow] = now; this.put("voiceSlow", marks); console.log("voice model marked slow", slow); }
+    return list.find((m) => now - (marks[m] || 0) > 30 * 60000) || [...list].sort((a, b) => (marks[a] || 0) - (marks[b] || 0))[0];
+  }
+
   async voiceTurn(text) {
-    const s = this.settings(), budget = this.spend(), now = Date.now();
-    const model = budget.today >= budget.limit ? s.models.text : s.models.chat;
+    const s = this.settings(), now = Date.now();
+    const model = this.voiceModel();
     const log = this.get("voiceLog", []).filter((x) => now - x.ts < 30 * 60000).slice(-14);
     const turn = { first: 0, text, hook: true, voice: true };
     this.drawn = 0;
@@ -1232,7 +1249,7 @@ export class Valet extends DurableObject {
     if (name === "code_sessions") {
       const d = await this.bridgeCall("code.sessions", {});
       if (!d.sessions?.length) return "No Claude Code session is open in the Claude app on his Mac right now.";
-      return `Live Claude Code sessions in the Claude app on his Mac:\n${d.sessions.map((x) => `${x.n}. "${x.title}" in project ${x.project}: ${x.state === "working" ? "working" : "idle"} for ${x.minutes} min${x.last ? `\n   its last message: ${x.last}` : ""}`).join("\n")}\nName a session by its number or by a clear part of its title or project.`;
+      return `Live Claude Code sessions in the Claude app on his Mac:\n${d.sessions.map((x) => `${x.n}. "${x.title}" in project ${x.project}: ${x.state === "working" ? "working" : "idle"} for ${x.minutes} min${x.model ? `, model ${x.model}` : ""}${x.last ? `\n   its last message: ${x.last}` : ""}`).join("\n")}\nName a session by its number or by a clear part of its title or project.`;
     }
     if (name === "code_read") {
       const d = await this.bridgeCall("code.read", { session: String(input.session || "").slice(0, 120), count: Math.max(2, Math.min(30, +input.count || 8)) });
@@ -1267,10 +1284,11 @@ export class Valet extends DurableObject {
     if (turn.outside) return "Refused: in this turn you read outside content (WhatsApp, the web or a catalogue), so nothing goes to Claude Code from it. Tell him exactly what you would send and ask him to confirm in his next message.";
     const text = String(input.text || "").trim().slice(0, 6000);
     if (!text) return "Refused: the prompt is empty.";
-    const d = await this.bridgeCall("code.prompt", { session: String(input.session || "").slice(0, 120), text });
+    const model = CODE_MODELS[String(input.model || "")];
+    const d = await this.bridgeCall("code.prompt", { session: String(input.session || "").slice(0, 120), text, ...(model ? { model: model[0] } : {}) });
     if (d.candidates) return which(d);
-    this.post({ who: "agent", agent: "valet", kind: "code", text, data: { code: { sid: d.sid, title: d.title, project: d.project, state: d.state === "working" ? "queued" : "running" } }, reply_to: origin });
-    return `Passed on to session "${d.title}" (${d.project}). ${d.state === "working" ? "The session is in the middle of a turn, so the prompt waits in its queue and runs right after." : "The session started working on it."} A card with the exact prompt is in the thread, so do not repeat it; say in one sentence that it went and that you will report when the session finishes.`;
+    this.post({ who: "agent", agent: "valet", kind: "code", text, data: { code: { sid: d.sid, title: d.title, project: d.project, state: d.state === "working" ? "queued" : "running", ...(model ? { model: model[1] } : {}) } }, reply_to: origin });
+    return `Passed on to session "${d.title}" (${d.project}).${model ? (d.model === "pending" ? ` It switches to ${model[1]} right after its current turn and stays on it.` : ` It now runs on ${model[1]} and stays on it.`) : ""} ${d.state === "working" ? "The session is in the middle of a turn, so the prompt waits in its queue and runs right after." : "The session started working on it."} A card with the exact prompt is in the thread, so do not repeat it; say in one sentence that it went and that you will report when the session finishes.`;
   }
 
   async whatsappTool(name, input) {
