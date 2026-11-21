@@ -1,10 +1,10 @@
 #!/bin/bash
-# Concierge Valet for iPhone: generates the Xcode project and builds it. Usage: ios/build.sh mac|sim|build|install|device
-# mac = Catalyst build for checks on this Mac, sim = simulator build, build = signed iPhone build, install = copy the last build to the paired iPhone, device = both.
+# Concierge Valet for iPhone: generates the Xcode project and builds it. Usage: ios/build.sh sim|build|install|device
+# sim = simulator build, build = signed iPhone build, install = copy the last build to the paired iPhone, device = both.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
-MODE="${1:-mac}"
+MODE="${1:-sim}"
 DERIVED="$ROOT/.build/ios"
 APP="$DERIVED/Build/Products/Release-iphoneos/Valet.app"
 cd "$HERE"
@@ -47,12 +47,6 @@ install_phone() {
 }
 
 case "$MODE" in
-  mac)
-    nice -n 10 xcodebuild -project Valet.xcodeproj -scheme Valet -configuration Debug \
-      -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath "$DERIVED" CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual \
-      DEVELOPMENT_TEAM= -jobs 2 -quiet build
-    echo "$DERIVED/Build/Products/Debug-maccatalyst/Valet.app"
-    ;;
   sim)
     nice -n 10 xcodebuild -project Valet.xcodeproj -scheme Valet -configuration Debug \
       -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" CODE_SIGNING_ALLOWED=NO -jobs 2 -quiet build
@@ -61,5 +55,5 @@ case "$MODE" in
   build) build_phone ;;
   install) install_phone ;;
   device) build_phone; install_phone; keep ;;
-  *) echo "Usage: ios/build.sh mac|sim|build|install|device" >&2; exit 1 ;;
+  *) echo "Usage: ios/build.sh sim|build|install|device" >&2; exit 1 ;;
 esac

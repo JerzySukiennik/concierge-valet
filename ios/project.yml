@@ -24,10 +24,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: fun.gzowo.valet.ios
         PRODUCT_NAME: Valet
         TARGETED_DEVICE_FAMILY: "1"
-        SUPPORTS_MACCATALYST: YES
-        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_USER_SCRIPT_SANDBOXING: NO
+    dependencies:
+      - target: ValetShare
     info:
       path: Info.plist
       properties:
@@ -45,3 +45,34 @@ targets:
         NSMicrophoneUsageDescription: Valet słucha, gdy dyktujesz wiadomość albo z nim rozmawiasz.
         NSCameraUsageDescription: Valet używa aparatu, gdy robisz zdjęcie do wiadomości.
         NSPhotoLibraryAddUsageDescription: Valet zapisuje obrazki w Zdjęciach, gdy o to poprosisz.
+  ValetShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Share
+        excludes: [Info.plist]
+      - path: Sources/Theme.swift
+      - path: Sources/Model.swift
+      - path: Local
+        optional: true
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fun.gzowo.valet.ios.share
+        PRODUCT_NAME: ValetShare
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    info:
+      path: Share/Info.plist
+      properties:
+        CFBundleDisplayName: Valet
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsImageWithMaxCount: 6
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsWebPageWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsFileWithMaxCount: 4

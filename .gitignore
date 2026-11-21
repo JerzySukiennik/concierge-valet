@@ -15,3 +15,4 @@ ios/Local/
 ios/Valet.xcodeproj/
 ios/Info.plist
 .build/
+ios/Share/Info.plist
