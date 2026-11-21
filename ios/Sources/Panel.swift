@@ -124,7 +124,7 @@ struct PanelSheet: View {
                 case .files: files
                 case .memory: memory
                 case .reminders: reminders
-                case .settings: SettingsView()
+                case .settings: settings
                 }
             }
             .background(Paper.bg)
@@ -139,6 +139,16 @@ struct PanelSheet: View {
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(30)
         .presentationBackground(Paper.bg)
+    }
+
+    @ViewBuilder private var settings: some View {
+        let deep = (ProcessInfo.processInfo.environment["VALET_DEEP"] ?? "").split(separator: ":").map(String.init)
+        switch deep.first ?? "" {
+        case "agent": AgentDetail(key: deep.count > 1 ? deep[1] : "valet")
+        case "editor": AvatarEditor(key: deep.count > 1 ? deep[1] : "valet")
+        case "watch": WatchList()
+        default: SettingsView()
+        }
     }
 
     private func blank(_ text: String) -> some View {
@@ -231,11 +241,15 @@ struct SettingsView: View {
                 ForEach(["valet", "atelier", "kurier"], id: \.self) { key in
                     let agent = s["agents"][key]
                     if !agent.isNull {
-                        HStack(spacing: 12) {
-                            AvatarView(avatar: agent["avatar"], size: 36, animated: false)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(agent["name"].text).font(Face.sans(16, .semibold)).foregroundStyle(Paper.fg)
-                                if !agent["role"].text.isEmpty { Text(agent["role"].text).font(Face.sans(13)).foregroundStyle(Paper.muted) }
+                        NavigationLink {
+                            AgentDetail(key: key)
+                        } label: {
+                            HStack(spacing: 12) {
+                                AvatarView(avatar: agent["avatar"], size: 36, animated: false)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(agent["name"].text).font(Face.sans(16, .semibold)).foregroundStyle(Paper.fg)
+                                    if !agent["role"].text.isEmpty { Text(agent["role"].text).font(Face.sans(13)).foregroundStyle(Paper.muted) }
+                                }
                             }
                         }
                     }
@@ -266,6 +280,12 @@ struct SettingsView: View {
                 Picker("Przypomnienie przed", selection: Binding(get: { s["calendar"]["nudge"].int ?? 30 }, set: { model.save(["calendar": ["nudge": .number(Double($0))]]) })) {
                     ForEach(SettingsView.nudges, id: \.0) { Text($0.1).tag($0.0) }
                 }
+                let writable = model.calendar["calendars"].array.filter { $0["write"].bool == true }.map { $0["name"].text }
+                if !writable.isEmpty {
+                    Picker("Nowe wydarzenia", selection: Binding(get: { writable.contains(s["calendar"]["home"].text) ? s["calendar"]["home"].text : writable[0] }, set: { model.save(["calendar": ["home": .string($0)]]) })) {
+                        ForEach(writable, id: \.self) { Text($0).tag($0) }
+                    }
+                }
                 let hidden = Set(s["calendar"]["hidden"].array.compactMap(\.string))
                 ForEach(model.calendar["calendars"].array.map { $0["name"].text }, id: \.self) { name in
                     Toggle(name, isOn: Binding(get: { !hidden.contains(name) }, set: { show in
@@ -280,8 +300,17 @@ struct SettingsView: View {
                     ForEach(SettingsView.signs, id: \.0) { Text($0.1).tag($0.0) }
                 }
                 Toggle("Valet sam mówi o ważnych wiadomościach", isOn: Binding(get: { s["whatsapp"]["proactive"].bool ?? true }, set: { model.save(["whatsapp": ["proactive": .bool($0)]]) }))
+                NavigationLink {
+                    WatchList()
+                } label: {
+                    HStack {
+                        Text("Pilnowane rozmowy")
+                        Spacer()
+                        Text("\(s["whatsapp"]["watch"].array.count)").foregroundStyle(Paper.muted)
+                    }
+                }
                 let link = model.mac["link"]
-                Text(link["on"].bool == true ? (link["state"].text == "open" ? "Łącze działa" : "Łącze czeka na kod QR na Macu") : "Łącze jest wyłączone").font(Face.sans(14)).foregroundStyle(Paper.muted)
+                Text(link["on"].bool == true ? (link["state"].text == "open" ? "Łącze działa" : "Łącze czeka na kod QR. Zeskanuj go telefonem z ekranu apki Valet na Macu.") : "Łącze jest wyłączone").font(Face.sans(14)).foregroundStyle(Paper.muted)
             }
             Section("Claude Code") {
                 Picker("Powiadomienia o sesjach", selection: Binding(get: { s["code"]["notify"].string ?? "away" }, set: { model.save(["code": ["notify": .string($0)]]) })) {
