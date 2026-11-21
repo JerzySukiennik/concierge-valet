@@ -234,7 +234,9 @@ struct ThreadList<Top: View, Bottom: View>: View {
                             .padding(.top, row.gap)
                             .id(row.id)
                     }
-                    if model.working {
+                    if !model.draft.isEmpty {
+                        LiveText(text: model.draft).padding(.top, 14).frame(maxWidth: .infinity, alignment: .leading)
+                    } else if model.working {
                         WorkRow(text: model.statusText).padding(.top, 16).transition(.opacity)
                     }
                     Color.clear.frame(height: 18).id("end")
@@ -296,6 +298,9 @@ struct ThreadList<Top: View, Bottom: View>: View {
             }
             .onChange(of: model.working) { _, _ in
                 if nearBottom { withAnimation(Motion.move) { proxy.scrollTo("end", anchor: .bottom) } }
+            }
+            .onChange(of: model.draft) { _, _ in
+                if nearBottom { proxy.scrollTo("end", anchor: .bottom) }
             }
             .onChange(of: jump) { _, target in
                 guard let target else { return }

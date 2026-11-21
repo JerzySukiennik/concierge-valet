@@ -27,6 +27,7 @@ final class AppModel {
     var settings: JSON = .null
     var notice = ""
     var arrived = 0
+    var draft = ""
 
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
     @ObservationIgnored private var retry: Double = 1
@@ -244,6 +245,7 @@ final class AppModel {
         case "edit": upsert(Message(raw: event["m"]), fresh: false)
         case "mac": mac = event["mac"]
         case "status": setStatus(event)
+        case "draft": draft = event["text"].text
         case "task":
             let task = TaskItem(raw: event["task"])
             if let i = tasks.firstIndex(where: { $0.id == task.id }) { tasks[i] = task } else { tasks.insert(task, at: 0) }
@@ -261,6 +263,7 @@ final class AppModel {
 
     private func setStatus(_ next: JSON) {
         status = next
+        if next["turn"].bool != true { draft = "" }
         calm?.cancel()
         guard ["happy", "error"].contains(next["state"].text) else { return }
         calm = Task { [weak self] in
@@ -276,6 +279,7 @@ final class AppModel {
             return
         }
         guard fresh else { return }
+        if !message.mine { draft = "" }
         messages.append(message)
         if message.mine, let i = outgoing.firstIndex(where: { $0.text == message.text && !$0.failed }) { outgoing.remove(at: i) }
         arrived += 1

@@ -301,6 +301,23 @@ struct RichText: View {
     }
 }
 
+struct LiveText: View {
+    let text: String
+    @State private var shown = 0
+
+    var body: some View {
+        RichText(text: String(text.prefix(shown)))
+            .task(id: text.count) {
+                if shown > text.count { shown = 0 }
+                while shown < text.count, !Task.isCancelled {
+                    shown = min(text.count, shown + max(2, (text.count - shown) / 5))
+                    try? await Task.sleep(for: .milliseconds(33))
+                }
+            }
+            .accessibilityLabel(text)
+    }
+}
+
 struct WorkRow: View {
     let text: String
     @State private var phase = 0.0

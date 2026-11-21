@@ -985,9 +985,10 @@ export class Valet extends DurableObject {
 
   async exchange(model, messages, turn, origin, onLabel, trace) {
     const brief = (v) => (typeof v === "string" ? v : JSON.stringify(v ?? "")).slice(0, 700);
-    let shown = "", reply = "", sources = [];
+    let shown = "", reply = "", sources = [], said = "", sentAt = 0;
     for (let i = 0; i < 8; i++) {
       const began = Date.now();
+      said = "";
       const res = await ask(this.env, {
         model,
         max_tokens: 16000,
@@ -998,11 +999,16 @@ export class Valet extends DurableObject {
         output_config: { effort: "low" },
         messages,
       }, (e) => {
+        if (turn.live && e.type === "content_block_delta" && e.delta?.type === "text_delta") {
+          said += e.delta.text;
+          if (Date.now() - sentAt > 90) { sentAt = Date.now(); this.broadcast({ t: "draft", text: said }); }
+        }
         const text = label(e);
         if (!text || text === shown) return;
         shown = text;
         onLabel(text);
       });
+      if (turn.live && said) this.broadcast({ t: "draft", text: ["tool_use", "pause_turn"].includes(res.stop_reason) ? "" : said });
       this.addSpend(cost(res.usage, res.model || model));
       const step = { ms: Date.now() - began, stop: res.stop_reason, tools: res.content.filter((b) => b.type === "server_tool_use").map((b) => ({ name: b.name, input: brief(b.input), server: true })) };
       trace.usd += cost(res.usage, res.model || model);
@@ -1065,7 +1071,7 @@ export class Valet extends DurableObject {
     const model = budget.today >= budget.limit ? s.models.text : s.models.chat;
     if (fresh.length) this.status("thinking", "Myśli", true);
     this.drawn = 0;
-    this.turn = { first: fresh.length ? fresh[0].id : 0, text: fresh.map((m) => m.text).join("\n"), hook: fresh.some((m) => m.data?.via === "hook"), events: events.join("\n\n").slice(0, 1500) };
+    this.turn = { first: fresh.length ? fresh[0].id : 0, text: fresh.map((m) => m.text).join("\n"), hook: fresh.some((m) => m.data?.via === "hook"), events: events.join("\n\n").slice(0, 1500), live: fresh.length > 0 };
     const seen = fresh.length ? this.attachments(fresh) : [];
     const messages = [{ role: "user", content: seen.length ? [...seen, { type: "text", text: this.context(fresh, cursor, events) }] : this.context(fresh, cursor, events) }];
     const { reply, sources } = await this.converse(model, messages, this.turn, origin, (text) => { if (fresh.length) this.status(text === "Pisze" ? "speaking" : "working", text, true); });
