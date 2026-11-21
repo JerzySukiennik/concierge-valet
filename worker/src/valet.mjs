@@ -81,6 +81,7 @@ export class Valet extends DurableObject {
     s.exec("CREATE TABLE IF NOT EXISTS spend (day TEXT PRIMARY KEY, usd REAL, calls INTEGER)");
     s.exec("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)");
     s.exec("CREATE TABLE IF NOT EXISTS blobs (id TEXT, seq INTEGER, data BLOB, PRIMARY KEY (id, seq))");
+    s.exec("CREATE TABLE IF NOT EXISTS trace (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, kind TEXT, origin INTEGER, model TEXT, ms INTEGER, usd REAL, asked TEXT, said TEXT, steps TEXT)");
     s.exec("CREATE TABLE IF NOT EXISTS inbox (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, chat TEXT, kind TEXT, sender TEXT, text TEXT)");
     this.calls = new Map();
     ctx.blockConcurrencyWhile(async () => { this.seed(); await this.rearm(); });
@@ -204,6 +205,8 @@ export class Valet extends DurableObject {
     switch (`${req.method} ${path}`) {
       case "GET /api/boot":
         return json(this.boot());
+      case "GET /api/trace":
+        return json({ trace: this.rows("SELECT * FROM trace WHERE id < ? ORDER BY id DESC LIMIT ?", +url.searchParams.get("before") || 1e15, Math.max(1, Math.min(100, +url.searchParams.get("n") || 20))).map((r) => ({ ...r, steps: JSON.parse(r.steps || "[]") })) });
       case "GET /api/thread":
         return json({ msgs: this.msgs(+url.searchParams.get("before") || null, 60) });
       case "POST /api/ticket": {
@@ -958,7 +961,30 @@ export class Valet extends DurableObject {
     this.broadcast({ t: "calendar", today: this.get("calToday", { events: [] }).events });
   }
 
+  traceSave(turn, origin, model, trace, reply) {
+    try {
+      const kind = turn.voice ? "voice" : !turn.first ? "events" : turn.hook ? "hook" : "chat";
+      this.sql.exec("INSERT INTO trace (ts, kind, origin, model, ms, usd, asked, said, steps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", Date.now(), kind, origin || 0, model, Date.now() - trace.began, trace.usd, String(turn.text || turn.events || "").slice(0, 1500), String(trace.error || reply || "").slice(0, 2000), JSON.stringify(trace.steps));
+      this.sql.exec("DELETE FROM trace WHERE id <= (SELECT MAX(id) FROM trace) - 300");
+    } catch (err) { console.error("trace", String(err?.message || err)); }
+  }
+
   async converse(model, messages, turn, origin, onLabel = () => {}) {
+    const trace = { began: Date.now(), usd: 0, steps: [], error: "" };
+    let reply = "", sources = [];
+    try {
+      ({ reply, sources } = await this.exchange(model, messages, turn, origin, onLabel, trace));
+    } catch (err) {
+      trace.error = `ERROR: ${String(err?.message || err).slice(0, 400)}`;
+      throw err;
+    } finally {
+      this.traceSave(turn, origin, model, trace, reply);
+    }
+    return { reply, sources };
+  }
+
+  async exchange(model, messages, turn, origin, onLabel, trace) {
+    const brief = (v) => (typeof v === "string" ? v : JSON.stringify(v ?? "")).slice(0, 700);
     let shown = "", reply = "", sources = [];
     for (let i = 0; i < 8; i++) {
       const began = Date.now();
@@ -978,6 +1004,9 @@ export class Valet extends DurableObject {
         onLabel(text);
       });
       this.addSpend(cost(res.usage, res.model || model));
+      const step = { ms: Date.now() - began, stop: res.stop_reason, tools: res.content.filter((b) => b.type === "server_tool_use").map((b) => ({ name: b.name, input: brief(b.input), server: true })) };
+      trace.usd += cost(res.usage, res.model || model);
+      trace.steps.push(step);
       console.log("chat usage", i, res.model || model, res.stop_reason, `${Date.now() - began}ms`, cost(res.usage, res.model || model).toFixed(4), res.content.filter((b) => b.type === "tool_use").map((b) => b.name).join(",") || "-", JSON.stringify({ in: res.usage.input_tokens, out: res.usage.output_tokens, read: res.usage.cache_read_input_tokens, write: res.usage.cache_creation_input_tokens, think: res.usage.output_tokens_details?.thinking_tokens }));
       if (res.stop_reason === "refusal") { reply = "Tego nie mogę zrobić."; break; }
       messages.push({ role: "assistant", content: res.content });
@@ -991,6 +1020,7 @@ export class Valet extends DurableObject {
           if (OUTSIDE.test(u.name)) turn.outside = true;
           this.turn = turn;
           try { content = await this.tool(u.name, u.input || {}, origin); } catch (err) { failed = true; content = `Tool failed: ${String(err?.message || err).slice(0, 300)}`; }
+          step.tools.push({ name: u.name, input: brief(u.input), result: brief(content), ...(failed ? { error: true } : {}) });
           results.push({ type: "tool_result", tool_use_id: u.id, content, ...(failed ? { is_error: true } : {}) });
         }
         messages.push({ role: "user", content: results });
@@ -1035,7 +1065,7 @@ export class Valet extends DurableObject {
     const model = budget.today >= budget.limit ? s.models.text : s.models.chat;
     if (fresh.length) this.status("thinking", "Myśli", true);
     this.drawn = 0;
-    this.turn = { first: fresh.length ? fresh[0].id : 0, text: fresh.map((m) => m.text).join("\n"), hook: fresh.some((m) => m.data?.via === "hook") };
+    this.turn = { first: fresh.length ? fresh[0].id : 0, text: fresh.map((m) => m.text).join("\n"), hook: fresh.some((m) => m.data?.via === "hook"), events: events.join("\n\n").slice(0, 1500) };
     const seen = fresh.length ? this.attachments(fresh) : [];
     const messages = [{ role: "user", content: seen.length ? [...seen, { type: "text", text: this.context(fresh, cursor, events) }] : this.context(fresh, cursor, events) }];
     const { reply, sources } = await this.converse(model, messages, this.turn, origin, (text) => { if (fresh.length) this.status(text === "Pisze" ? "speaking" : "working", text, true); });
