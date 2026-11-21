@@ -68,14 +68,8 @@ struct Composer: View {
                 .tint(Paper.accent)
                 .lineLimit(1...6)
                 .focused(focus)
-                .submitLabel(.send)
                 .padding(.vertical, 8)
                 .padding(.horizontal, 4)
-                .onChange(of: text) { old, new in
-                    guard new.count == old.count + 1, new.last == "\n" else { return }
-                    text = old
-                    send()
-                }
             if empty {
                 Button { startDictation() } label: {
                     Image(systemName: "mic").font(.system(size: 18, weight: .medium)).foregroundStyle(Paper.muted).frame(width: 38, height: 38).contentShape(Circle())

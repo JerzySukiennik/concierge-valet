@@ -51,6 +51,9 @@ const puck = $("puck"), thread = $("thread"), chat = $("view-chat"), input = $("
 let typingNode = null, statusTimer = 0, listenTimer = 0, speakTimer = 0, local = "", mirror = null;
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
 const standalone = () => navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+const toNative = () => { if (IOS && standalone() && store.get("valet-native") !== "0") location.href = "valet://open"; };
+if (new URLSearchParams(location.search).get("native")) { history.replaceState(null, "", location.pathname + location.hash); toNative(); }
+navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.t === "native") toNative(); });
 const money = (n) => (+n || 0).toFixed(2).replace(".", ",");
 
 async function api(path, body) {

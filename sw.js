@@ -1,4 +1,4 @@
-/* Service worker: push notifications, and every file of the app is revalidated with the server on each load so a new version shows up at once. Nothing is cached here. */
+/* Service worker: push notifications, and every file of the app is revalidated with the server on each load so a new version shows up at once. Nothing is cached here. A tapped notification asks the page to hand over to the native iPhone app. */
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("fetch", (e) => {
@@ -14,8 +14,13 @@ self.addEventListener("push", (e) => {
 });
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-    for (const c of list) if ("focus" in c) return c.focus();
-    return self.clients.openWindow("./");
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (list) => {
+    for (const c of list) {
+      if (!("focus" in c)) continue;
+      const shown = await c.focus().catch(() => c);
+      (shown || c).postMessage({ t: "native" });
+      return;
+    }
+    return self.clients.openWindow("./?native=1");
   }));
 });
