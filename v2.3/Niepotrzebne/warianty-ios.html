@@ -1,0 +1,222 @@
+<!doctype html>
+<!-- Concierge Valet for iPhone: three directions for the native main screen, side by side, in light and dark. -->
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Valet na iPhone: warianty</title>
+<style>
+* { box-sizing: border-box; margin: 0; }
+:root { --page: #e9e6df; --page-fg: #1d1c19; --page-muted: #6f6b62; --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif; --round: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif; --serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif; }
+html[data-theme="dark"] { --page: #050505; --page-fg: #efebe3; --page-muted: #8d887e; }
+body { font: 15px/1.45 var(--sans); background: var(--page); color: var(--page-fg); -webkit-font-smoothing: antialiased; padding: 28px 24px 48px; transition: background .3s ease, color .3s ease; }
+svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1400px; margin: 0 auto 26px; }
+.top h1 { font: 600 22px/1.2 var(--sans); letter-spacing: -.01em; }
+.top p { color: var(--page-muted); margin-top: 3px; }
+.switch { display: inline-flex; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--page-fg) 9%, transparent); }
+.switch button { font: 600 13px/1 var(--sans); padding: 9px 16px; border-radius: 999px; border: 0; background: none; color: var(--page-muted); cursor: pointer; }
+.switch button[aria-pressed="true"] { background: var(--page-fg); color: var(--page); }
+.row { display: flex; gap: 34px; justify-content: center; align-items: flex-start; max-width: 1400px; margin: 0 auto; flex-wrap: wrap; }
+.col { width: 372px; }
+.col h2 { font: 600 17px/1.2 var(--sans); margin: 18px 4px 6px; }
+.col h2 span { color: var(--page-muted); font-weight: 500; }
+.col ul { list-style: none; padding: 0 4px; color: var(--page-muted); font-size: 13.5px; }
+.col li { padding: 3px 0 3px 14px; position: relative; }
+.col li::before { content: ""; position: absolute; left: 0; top: 11px; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .55; }
+
+.phone { width: 372px; height: 806px; border-radius: 46px; overflow: hidden; position: relative; background: var(--bg); color: var(--fg); box-shadow: 0 0 0 9px #0d0d0d, 0 0 0 10px #2a2a2a, 0 30px 60px -24px rgba(0, 0, 0, .45); font: 16px/1.42 var(--sans); display: flex; flex-direction: column; transition: background .3s ease, color .3s ease; }
+.notch { position: absolute; top: 0; left: 50%; width: 188px; height: 27px; margin-left: -94px; background: #0d0d0d; border-radius: 0 0 18px 18px; z-index: 5; }
+.bar { height: 40px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 6px 26px 0; font: 600 14px/1 var(--sans); }
+.bar i { display: flex; gap: 5px; align-items: center; font-style: normal; }
+.bar .cell { width: 17px; height: 11px; border-radius: 2px; background: currentColor; -webkit-mask: linear-gradient(90deg, #000 18%, transparent 18% 27%, #000 27% 45%, transparent 45% 54%, #000 54% 72%, transparent 72% 81%, #000 81%); mask: linear-gradient(90deg, #000 18%, transparent 18% 27%, #000 27% 45%, transparent 45% 54%, #000 54% 72%, transparent 72% 81%, #000 81%); }
+.bar .batt { width: 24px; height: 11.5px; border-radius: 3.5px; border: 1.2px solid currentColor; padding: 1.3px; opacity: .9; }
+.bar .batt::after { content: ""; display: block; width: 72%; height: 100%; border-radius: 1.6px; background: currentColor; }
+.home { position: absolute; bottom: 7px; left: 50%; width: 128px; height: 5px; margin-left: -64px; border-radius: 3px; background: var(--fg); opacity: .9; z-index: 6; }
+.thread { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 16px 10px; gap: 10px; }
+.day { align-self: center; font: 600 11.5px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 4px 0 2px; }
+.me { align-self: flex-end; max-width: 78%; padding: 9px 14px; border-radius: var(--me-r); background: var(--me-bg); color: var(--me-fg); }
+.va { max-width: 94%; }
+.card { background: var(--card); border: 1px solid var(--card-line); border-radius: var(--card-r); overflow: hidden; }
+.ev { display: flex; align-items: center; gap: 11px; padding: 11px 14px; }
+.ev + .ev { border-top: 1px solid var(--sep); }
+.ev b { font-weight: 600; font-size: 15px; display: block; }
+.ev small { color: var(--muted); font-size: 13px; }
+.ev time { margin-left: auto; font: 600 14px/1 var(--round); font-variant-numeric: tabular-nums; color: var(--fg); }
+.rail { width: 4px; align-self: stretch; border-radius: 2px; background: var(--accent); flex: none; }
+.rail.b { background: #d9822b; }
+.code { display: flex; align-items: center; gap: 10px; padding: 11px 14px; font-size: 14px; }
+.code .ic { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--soft); flex: none; }
+.code .ic svg { width: 17px; height: 17px; }
+.code b { font-weight: 600; display: block; font-size: 14.5px; }
+.code small { color: var(--muted); font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #2fa46f; box-shadow: 0 0 0 0 rgba(47, 164, 111, .5); animation: pulse 1.8s ease-out infinite; }
+@keyframes pulse { to { box-shadow: 0 0 0 7px rgba(47, 164, 111, 0); } }
+.puck { border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px var(--ring), 0 8px 18px -12px rgba(0, 0, 0, .5); display: grid; place-items: center; flex: none; }
+.puck svg { width: 100%; height: 100%; stroke: none; }
+.puck .eye { fill: #1d1c19; transform-origin: center; transform-box: fill-box; animation: blink 5.2s infinite; }
+@keyframes blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } }
+.ibtn { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: var(--fg); flex: none; }
+.ibtn svg { width: 21px; height: 21px; }
+.composer { flex: none; padding: 6px 12px 26px; }
+.field { display: flex; align-items: center; gap: 4px; background: var(--field); border: 1px solid var(--field-line); border-radius: 26px; padding: 5px 5px 5px 6px; min-height: 48px; }
+.field .ph { flex: 1; color: var(--muted); padding: 0 4px; font-size: 16.5px; }
+.field .ibtn { width: 36px; height: 36px; color: var(--muted); }
+.go { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--go); color: var(--go-fg); flex: none; }
+.go svg { width: 19px; height: 19px; stroke-width: 2.2; }
+@media (prefers-reduced-motion: reduce) { .dot, .puck .eye { animation: none; } }
+
+.a { --bg: #f6f3ec; --fg: #201e1a; --muted: #857f74; --soft: #ece7dc; --card: #fffdf9; --card-line: #e6e0d3; --sep: #eee9de; --accent: #1f5a46; --me-bg: #e9e3d6; --me-fg: #201e1a; --me-r: 20px 20px 6px 20px; --card-r: 22px; --field: #fffdf9; --field-line: #e3ddd0; --go: #1f5a46; --go-fg: #fff; --ring: rgba(0, 0, 0, .08); }
+html[data-theme="dark"] .a { --bg: #1b1a17; --fg: #ece7dc; --muted: #8f897d; --soft: #2a2824; --card: #23211d; --card-line: #33302a; --sep: #302d28; --accent: #63b895; --me-bg: #34312b; --me-fg: #f1ece2; --field: #24221e; --field-line: #37342e; --go: #2b7a5d; --go-fg: #fff; --ring: rgba(255, 255, 255, .12); }
+.a .nav { flex: none; display: flex; align-items: center; padding: 4px 10px 8px; }
+.a .who { flex: 1; display: flex; align-items: center; justify-content: center; gap: 9px; }
+.a .who .puck { width: 28px; height: 28px; }
+.a .who b { font: 600 18px/1 var(--serif); letter-spacing: -.01em; }
+.a .who small { font-size: 12px; color: var(--muted); }
+.a .va { font: 17.5px/1.5 var(--serif); letter-spacing: -.003em; }
+.a .field { box-shadow: 0 10px 28px -18px rgba(60, 45, 20, .5); }
+.a .thread { gap: 14px; padding-bottom: 14px; }
+
+.b { --bg: #f8f6f1; --fg: #1d1c19; --muted: #7d7a72; --soft: #ece8df; --card: #fff; --card-line: #e9e4d9; --sep: #efeae0; --accent: #1f5a46; --me-bg: #1d1c19; --me-fg: #f8f6f1; --me-r: 22px 22px 8px 22px; --card-r: 24px; --field: #fff; --field-line: #e3ded2; --go: #1d1c19; --go-fg: #f8f6f1; --ring: rgba(0, 0, 0, .08); }
+html[data-theme="dark"] .b { --bg: #000; --fg: #f1ede4; --muted: #8f8a80; --soft: #1e1d1a; --card: #131211; --card-line: #262522; --sep: #23221f; --accent: #5fb391; --me-bg: #ece7dc; --me-fg: #141310; --field: #131211; --field-line: #2b2a27; --go: #ece7dc; --go-fg: #141310; --ring: rgba(255, 255, 255, .12); }
+.b .hero { flex: none; display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 6px 0 12px; position: relative; }
+.b .hero .puck { width: 68px; height: 68px; }
+.b .hero .puck::after { content: ""; position: absolute; width: 68px; height: 68px; border-radius: 50%; box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); animation: halo 2.6s ease-out infinite; }
+@keyframes halo { to { box-shadow: 0 0 0 16px transparent; } }
+.b .hero b { font: 600 15px/1 var(--round); }
+.b .hero small { font: 500 12.5px/1 var(--round); color: var(--accent); }
+.b .hero .ibtn { position: absolute; top: 10px; }
+.b .hero .ibtn.l { left: 12px; }
+.b .hero .ibtn.r { right: 12px; }
+.b .va { font-size: 16.5px; }
+.b .ev time { background: var(--soft); padding: 6px 9px; border-radius: 10px; }
+.b .field { border-radius: 28px; min-height: 52px; padding: 6px 6px 6px 8px; }
+.b .go { width: 40px; height: 40px; }
+@media (prefers-reduced-motion: reduce) { .b .hero .puck::after { animation: none; } }
+
+.c { --bg: #fbfaf7; --fg: #161614; --muted: #86837c; --soft: #f0eee8; --card: #fff; --card-line: #ebe8e0; --sep: #f0ede6; --accent: #1f5a46; --me-bg: #1f5a46; --me-fg: #fff; --me-r: 19px; --card-r: 16px; --field: #fff; --field-line: #e9e6de; --go: #161614; --go-fg: #fff; --ring: rgba(0, 0, 0, .08); }
+html[data-theme="dark"] .c { --bg: #0e0e0d; --fg: #f2efe8; --muted: #8b877f; --soft: #1d1c1a; --card: #171716; --card-line: #262523; --sep: #232220; --accent: #5fb391; --me-bg: #2b7a5d; --me-fg: #fff; --field: #19191a; --field-line: #2a2a28; --go: #f2efe8; --go-fg: #161614; --ring: rgba(255, 255, 255, .12); }
+.c .nav { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 4px 14px 8px; }
+.c .nav .ibtn { background: var(--soft); width: 38px; height: 38px; }
+.c .who { display: flex; align-items: center; gap: 8px; }
+.c .who .puck { width: 24px; height: 24px; }
+.c .who b { font: 600 16px/1 var(--sans); }
+.c .va b { font-weight: 600; }
+.c .chips { display: flex; gap: 8px; padding: 0 12px 8px; flex: none; }
+.c .chips span { font: 500 13.5px/1 var(--sans); padding: 9px 13px; border-radius: 999px; border: 1px solid var(--card-line); background: var(--card); white-space: nowrap; }
+.c .field { box-shadow: 0 14px 34px -20px rgba(0, 0, 0, .45); border-radius: 24px; }
+.c .ev b { font-size: 15.5px; }
+.c .me { padding: 8px 13px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div><h1>Valet na iPhone: trzy kierunki</h1><p>Ten sam fragment rozmowy w trzech wyglądach. Przełącz jasny i ciemny.</p></div>
+  <div class="switch" role="group" aria-label="Motyw"><button data-set="light" aria-pressed="true">Jasny</button><button data-set="dark" aria-pressed="false">Ciemny</button></div>
+</div>
+<div class="row">
+  <section class="col">
+    <div class="phone a">
+      <div class="notch"></div>
+      <div class="bar"><span>9:41</span><i><span class="cell"></span><span class="batt"></span></i></div>
+      <div class="nav">
+        <span class="ibtn"><svg viewBox="0 0 24 24"><path d="M5 8h14M5 16h9"/></svg></span>
+        <div class="who"><span class="puck"><svg viewBox="0 0 100 100"><rect class="eye" x="32" y="38" width="10" height="24" rx="5"/><rect class="eye" x="58" y="38" width="10" height="24" rx="5"/></svg></span><b>Valet</b></div>
+        <span class="ibtn"><svg viewBox="0 0 24 24"><path d="M4 12h2.5M8.5 8v8M12 5v14M15.5 9v6M19 11v2"/></svg></span>
+      </div>
+      <div class="thread">
+        <div class="day">Dzisiaj</div>
+        <div class="me">Co mam jutro i jaka będzie pogoda?</div>
+        <div class="va">Jutro masz dwie rzeczy: sprawdzian z matematyki o 9:50 i trening o 17:00. Będzie zimno, od 1 do 4 stopni, bez opadów.</div>
+        <div class="card">
+          <div class="ev"><span class="rail b"></span><div><b>Sprawdzian z matematyki</b><small>Szkoła · sala 12</small></div><time>9:50</time></div>
+          <div class="ev"><span class="rail"></span><div><b>Trening</b><small>Hala sportowa</small></div><time>17:00</time></div>
+        </div>
+        <div class="me">Przypomnij mi godzinę wcześniej, żebym spakował torbę.</div>
+        <div class="va">Ustawione na 16:00. Sesja Claude Code nadal pracuje, dam znać, gdy skończy.</div>
+        <div class="card"><div class="code"><span class="ic"><svg viewBox="0 0 24 24"><path d="M7 9l3 3-3 3M13 15h4"/></svg></span><div><b>Claude Code</b><small><i class="dot"></i>Sesja pracuje · Concierge-Valet</small></div></div></div>
+      </div>
+      <div class="composer"><div class="field"><span class="ibtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><span class="ph">Wiadomość</span><span class="ibtn"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span class="go"><svg viewBox="0 0 24 24"><path d="M4 12h1.5M8 8v8M12 4.5v15M16 9v6M19.5 11v2"/></svg></span></div></div>
+      <div class="home"></div>
+    </div>
+    <h2>A · Papier <span>najbliżej apki Claude</span></h2>
+    <ul>
+      <li>Odpowiedzi Valeta jako tekst szeryfowy bez dymków, Twoje wiadomości w jasnym dymku.</li>
+      <li>Jeden ekran, bez zakładek: Zadania, Twórz i Ustawienia w wysuwanym panelu z lewej.</li>
+      <li>Pole pisania unosi się nad tłem, rozmowa głosowa pod zielonym przyciskiem.</li>
+    </ul>
+  </section>
+
+  <section class="col">
+    <div class="phone b">
+      <div class="notch"></div>
+      <div class="bar"><span>9:41</span><i><span class="cell"></span><span class="batt"></span></i></div>
+      <div class="hero">
+        <span class="ibtn l"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="2"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="2"/></svg></span>
+        <span class="puck"><svg viewBox="0 0 100 100"><rect class="eye" x="33" y="37" width="10" height="26" rx="5"/><rect class="eye" x="57" y="37" width="10" height="26" rx="5"/></svg></span>
+        <b>Valet</b><small>Słucha</small>
+        <span class="ibtn r"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></svg></span>
+      </div>
+      <div class="thread">
+        <div class="me">Co mam jutro i jaka będzie pogoda?</div>
+        <div class="va">Jutro masz dwie rzeczy: sprawdzian z matematyki o 9:50 i trening o 17:00. Będzie zimno, od 1 do 4 stopni, bez opadów.</div>
+        <div class="card">
+          <div class="ev"><div><b>Sprawdzian z matematyki</b><small>Szkoła · sala 12</small></div><time>9:50</time></div>
+          <div class="ev"><div><b>Trening</b><small>Hala sportowa</small></div><time>17:00</time></div>
+        </div>
+        <div class="me">Przypomnij mi godzinę wcześniej, żebym spakował torbę.</div>
+        <div class="va">Ustawione na 16:00. Sesja Claude Code nadal pracuje, dam znać, gdy skończy.</div>
+        <div class="card"><div class="code"><span class="ic"><svg viewBox="0 0 24 24"><path d="M7 9l3 3-3 3M13 15h4"/></svg></span><div><b>Claude Code</b><small><i class="dot"></i>Sesja pracuje · Concierge-Valet</small></div></div></div>
+      </div>
+      <div class="composer"><div class="field"><span class="ibtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><span class="ph">Wiadomość</span><span class="ibtn"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span class="go"><svg viewBox="0 0 24 24"><path d="M4 12h1.5M8 8v8M12 4.5v15M16 9v6M19.5 11v2"/></svg></span></div></div>
+      <div class="home"></div>
+    </div>
+    <h2>B · Postać <span>Valet jako żywy bohater</span></h2>
+    <ul>
+      <li>Duży awatar na górze reaguje na to, co się dzieje (słucha, myśli, mówi), a przy przewijaniu zwija się do paska.</li>
+      <li>Najbliżej obecnego Valeta: czarne dymki, bezszeryfowy tekst, okrągłe karty.</li>
+      <li>Pulpit (zadania, Twórz) pod ikoną z lewej, ustawienia z prawej.</li>
+    </ul>
+  </section>
+
+  <section class="col">
+    <div class="phone c">
+      <div class="notch"></div>
+      <div class="bar"><span>9:41</span><i><span class="cell"></span><span class="batt"></span></i></div>
+      <div class="nav">
+        <span class="ibtn"><svg viewBox="0 0 24 24"><path d="M5 8h14M5 16h14"/></svg></span>
+        <div class="who"><span class="puck"><svg viewBox="0 0 100 100"><rect class="eye" x="31" y="37" width="11" height="26" rx="5.5"/><rect class="eye" x="58" y="37" width="11" height="26" rx="5.5"/></svg></span><b>Valet</b></div>
+        <span class="ibtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/></svg></span>
+      </div>
+      <div class="thread">
+        <div class="day">Dzisiaj</div>
+        <div class="me">Co mam jutro i jaka będzie pogoda?</div>
+        <div class="va">Jutro masz <b>dwie rzeczy</b>: sprawdzian z matematyki o 9:50 i trening o 17:00. Będzie zimno, od 1 do 4 stopni, bez opadów.</div>
+        <div class="card">
+          <div class="ev"><span class="rail b"></span><div><b>Sprawdzian z matematyki</b><small>Szkoła · sala 12</small></div><time>9:50</time></div>
+          <div class="ev"><span class="rail"></span><div><b>Trening</b><small>Hala sportowa</small></div><time>17:00</time></div>
+        </div>
+        <div class="me">Przypomnij mi godzinę wcześniej, żebym spakował torbę.</div>
+        <div class="va">Ustawione na 16:00. Sesja Claude Code nadal pracuje, dam znać, gdy skończy.</div>
+        <div class="card"><div class="code"><span class="ic"><svg viewBox="0 0 24 24"><path d="M7 9l3 3-3 3M13 15h4"/></svg></span><div><b>Claude Code</b><small><i class="dot"></i>Sesja pracuje · Concierge-Valet</small></div></div></div>
+      </div>
+      <div class="chips"><span>Plan na jutro</span><span>Co nowego na WhatsAppie?</span></div>
+      <div class="composer"><div class="field"><span class="ibtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><span class="ph">Napisz do Valeta</span><span class="ibtn"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span class="go"><svg viewBox="0 0 24 24"><path d="M4 12h1.5M8 8v8M12 4.5v15M16 9v6M19.5 11v2"/></svg></span></div></div>
+      <div class="home"></div>
+    </div>
+    <h2>C · Atelier <span>czysto i systemowo</span></h2>
+    <ul>
+      <li>Najbardziej minimalny: bezszeryfowy tekst, zielone dymki, karty jak listy w iOS.</li>
+      <li>Podpowiedzi nad polem pisania, które Valet dobiera do pory dnia.</li>
+      <li>Menu z lewej, historia i „dzisiaj” pod zegarem z prawej.</li>
+    </ul>
+  </section>
+</div>
+<script>
+const root = document.documentElement, buttons = [...document.querySelectorAll(".switch button")];
+const apply = (theme) => { root.dataset.theme = theme; for (const b of buttons) b.setAttribute("aria-pressed", String(b.dataset.set === theme)); };
+for (const b of buttons) b.addEventListener("click", () => apply(b.dataset.set));
+apply(new URLSearchParams(location.search).get("theme") === "dark" || matchMedia("(prefers-color-scheme: dark)").matches && !new URLSearchParams(location.search).get("theme") ? "dark" : "light");
+</script>
+</body>
+</html>
