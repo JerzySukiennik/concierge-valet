@@ -45,9 +45,10 @@ enum Paper {
 }
 
 enum Face {
-    static func serif(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font { .system(size: size, weight: weight, design: .serif) }
-    static func sans(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font { .system(size: size, weight: weight) }
-    static func round(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font { .system(size: size, weight: weight, design: .rounded) }
+    static func scaled(_ size: CGFloat) -> CGFloat { min(size * 1.4, max(size * 0.88, UIFontMetrics(forTextStyle: .body).scaledValue(for: size))) }
+    static func serif(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font { .system(size: scaled(size), weight: weight, design: .serif) }
+    static func sans(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font { .system(size: scaled(size), weight: weight) }
+    static func round(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font { .system(size: scaled(size), weight: weight, design: .rounded) }
 }
 
 enum Haptic {

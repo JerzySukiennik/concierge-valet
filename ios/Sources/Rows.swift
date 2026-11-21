@@ -121,8 +121,7 @@ struct MessageRow: View {
     private func mine(_ m: Message) -> some View {
         VStack(alignment: .trailing, spacing: 6) {
             if !m.text.isEmpty {
-                Bubble(text: m.text)
-                    .contextMenu { Button("Kopiuj", systemImage: "doc.on.doc") { UIPasteboard.general.string = m.text } }
+                Bubble(text: m.text).modifier(TextActions(text: m.text))
             }
             ForEach(m.files) { FileChip(file: $0, mine: true) }
         }
@@ -141,8 +140,7 @@ struct MessageRow: View {
                     .overlay(alignment: .leading) { Capsule().fill(Paper.line).frame(width: 3) }
             }
             if !m.text.isEmpty {
-                RichText(text: m.text)
-                    .contextMenu { Button("Kopiuj", systemImage: "doc.on.doc") { UIPasteboard.general.string = m.text } }
+                RichText(text: m.text).modifier(TextActions(text: m.text, speakable: true))
             }
             ForEach(m.files) { FileChip(file: $0, mine: false) }
             if !Message.known.contains(m.kind) {
@@ -169,6 +167,51 @@ struct MessageRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
+
+struct TextActions: ViewModifier {
+    let text: String
+    var speakable = false
+    @State private var selecting = false
+
+    func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                Button("Kopiuj", systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = text
+                    Haptic.tap()
+                }
+                Button("Zaznacz tekst", systemImage: "text.cursor") { selecting = true }
+                ShareLink(item: text) { Label("Udostępnij", systemImage: "square.and.arrow.up") }
+                if speakable { Button("Przeczytaj", systemImage: "speaker.wave.2") { Speaker.shared.say(text) } }
+            }
+            .sheet(isPresented: $selecting) {
+                SelectableText(text: text)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 24)
+                    .background(Paper.bg)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    .presentationBackground(Paper.bg)
+            }
+    }
+}
+
+struct SelectableText: UIViewRepresentable {
+    let text: String
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.isEditable = false
+        view.backgroundColor = .clear
+        view.font = UIFont.systemFont(ofSize: Face.scaled(17))
+        view.textColor = UIColor(Paper.fg)
+        view.tintColor = UIColor(Paper.accent)
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 24, right: 4)
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) { view.text = text }
 }
 
 struct Signature: View {
@@ -226,8 +269,8 @@ struct RichText: View {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)
         guard var styled = try? AttributedString(markdown: linked, options: options) else { return AttributedString(source) }
         for run in styled.runs where run.inlinePresentationIntent?.contains(.code) == true {
-            styled[run.range].font = .system(size: 14.5, design: .monospaced)
-            styled[run.range].backgroundColor = Paper.soft
+            styled[run.range].font = .system(size: Face.scaled(15), design: .monospaced)
+            styled[run.range].foregroundColor = Paper.tintFg
         }
         return styled
     }

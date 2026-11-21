@@ -103,6 +103,23 @@ final class AudioLink {
 }
 
 @MainActor
+final class Speaker {
+    static let shared = Speaker()
+    private let voice = AVSpeechSynthesizer()
+
+    func say(_ text: String) {
+        if voice.isSpeaking {
+            voice.stopSpeaking(at: .immediate)
+            return
+        }
+        let plain = text.replacingOccurrences(of: "[*_`#>]", with: "", options: .regularExpression)
+        let line = AVSpeechUtterance(string: plain)
+        line.voice = AVSpeechSynthesisVoice(language: "pl-PL")
+        voice.speak(line)
+    }
+}
+
+@MainActor
 final class LiveSocket {
     private var task: URLSessionWebSocketTask?
     var onMessage: ((JSON) -> Void)?
@@ -308,7 +325,6 @@ final class VoiceCenter {
         }
         running = true
         presented = true
-        state = "listening"
         UIApplication.shared.isIdleTimerDisabled = true
         await connect(slow: "")
     }
@@ -386,6 +402,7 @@ final class VoiceCenter {
             queue = []
             for chunk in waiting { push(chunk) }
             loudAt = Date()
+            Haptic.done()
             if !replay {
                 state = "listening"
             } else {

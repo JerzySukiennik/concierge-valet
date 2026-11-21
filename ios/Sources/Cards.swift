@@ -43,13 +43,29 @@ struct QuoteBox<Content: View>: View {
 
 struct CodeBlock: View {
     let text: String
+    @State private var copied = false
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            Text(text).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Paper.fg).padding(10).textSelection(.enabled)
+            Text(text).font(.system(size: Face.scaled(12.5), design: .monospaced)).foregroundStyle(Paper.fg).padding(10).padding(.trailing, 30).textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Paper.soft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            Button {
+                UIPasteboard.general.string = text
+                Haptic.tap()
+                copied = true
+                Task {
+                    try? await Task.sleep(for: .seconds(1.4))
+                    copied = false
+                }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: 12, weight: .semibold)).foregroundStyle(Paper.muted).frame(width: 32, height: 32).contentShape(Rectangle())
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .accessibilityLabel("Kopiuj")
+        }
     }
 }
 
@@ -406,10 +422,48 @@ struct AskCard: View {
     @Environment(AppModel.self) private var model
     @State private var picked: [String: Set<String>] = [:]
     @State private var busy = false
+    @State private var expanded = false
+    @State private var confirming = false
+
+    private static let risky = try? NSRegularExpression(pattern: "(--force|\\bpush\\b|\\brm\\s+-[a-z]*[rf]|reset\\s+--hard|clean\\s+-[a-z]*f|drop\\s+(table|database)|\\bdeploy\\b|\\bpublish\\b|mkfs|\\bdd\\s+if=)", options: [.caseInsensitive])
+
+    private var danger: Bool {
+        let text = message.data["ask"]["summary"].text
+        return AskCard.risky?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
 
     private static let tools = ["Bash": "polecenie w terminalu", "Edit": "zmianę pliku", "Write": "zapis pliku", "NotebookEdit": "zmianę notatnika", "WebFetch": "pobranie strony", "WebSearch": "szukanie w sieci", "Read": "odczyt pliku"]
 
     var body: some View {
+        let a = message.data["ask"], state = a["state"].text
+        if state == "open" || expanded {
+            whole
+        } else {
+            let time = a["at"].double.map { When.time($0) } ?? "", why = a["why"].text
+            let short = ["allowed": "pozwolono\(time.isEmpty ? "" : " \(time)")", "denied": "odmówiono\(time.isEmpty ? "" : " \(time)")", "answered": "odpowiedziano", "gone": why == "local" ? "przy Macu" : "nieaktualne"][state] ?? state
+            Button {
+                Haptic.tap()
+                withAnimation(Motion.snap) { expanded = true }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "terminal").font(.system(size: 13, weight: .semibold))
+                    Text("\(a["kind"].text == "question" ? "Pytanie" : "Zgoda") · \(short)").font(Face.sans(13.5, .medium)).lineLimit(1).layoutPriority(1)
+                    Text(a["title"].text).font(Face.sans(13.5)).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(Paper.muted)
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .background(Paper.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Paper.line, lineWidth: 1))
+            }
+            .buttonStyle(PressStyle(scale: 0.985))
+            .accessibilityHint("Pokaż szczegóły")
+        }
+    }
+
+    @ViewBuilder private var whole: some View {
         let a = message.data["ask"], question = a["kind"].text == "question", state = a["state"].text, open = state == "open"
         let questions = a["questions"].array, alone = questions.count == 1 && questions[0]["multi"].bool != true
         let time = a["at"].double.map { When.time($0) } ?? ""
@@ -457,6 +511,9 @@ struct AskCard: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Prosi o zgodę na \(what)\(a["agent"].bool == true ? " (pomocniczy agent)" : "")").font(Face.serif(16)).foregroundStyle(Paper.fg)
                     CodeBlock(text: a["summary"].text)
+                    if danger, open {
+                        Label("To polecenie może coś nieodwracalnie usunąć, nadpisać albo opublikować.", systemImage: "exclamationmark.triangle").font(Face.sans(13, .medium)).foregroundStyle(Paper.orange)
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 10)
@@ -464,7 +521,7 @@ struct AskCard: View {
             CardFoot(state: "\(line) · \(a["project"].text)") {
                 if open, !question {
                     Button("Odmów") { finish(["act": "deny"]) }.buttonStyle(PillStyle(height: 38))
-                    Button("Pozwól") { finish(["act": "allow"]) }.buttonStyle(PillStyle(solid: true, height: 38))
+                    Button("Pozwól") { if danger { confirming = true } else { finish(["act": "allow"]) } }.buttonStyle(PillStyle(solid: !danger, height: 38))
                 }
                 if open, question, !alone {
                     Button("Wyślij odpowiedź") {
@@ -476,6 +533,10 @@ struct AskCard: View {
             }
             .disabled(busy)
         }
+        .confirmationDialog("Pozwolić na to polecenie?", isPresented: $confirming, titleVisibility: .visible) {
+            Button("Pozwól mimo to", role: .destructive) { finish(["act": "allow"]) }
+            Button("Anuluj", role: .cancel) {}
+        } message: { Text("Tego może nie dać się cofnąć.") }
     }
 
     private func choose(_ q: JSON, _ label: String, alone: Bool) {

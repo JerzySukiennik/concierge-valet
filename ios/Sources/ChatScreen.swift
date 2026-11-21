@@ -60,23 +60,26 @@ struct ChatScreen: View {
 
     var body: some View {
         let shift = max(-width, min(0, (open ? 0 : -width) + pull)), progress = 1 + shift / width
-        ZStack(alignment: .leading) {
-            VStack(spacing: 0) {
-                nav
-                ThreadList(jump: $jump) {
-                    BottomBar(voice: voice, showPending: $showPending, focusRequest: focusRequest)
-                }
-            }
-            Color.clear.frame(width: 18).contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 8).updating($pull) { value, state, _ in state = max(0, value.translation.width) }.onEnded { value in
-                    if value.translation.width > 70 || value.predictedEndTranslation.width > 160 { show(true) }
-                })
-                .ignoresSafeArea()
+        ThreadList(jump: $jump) {
+            nav
+        } bottom: {
+            BottomBar(voice: voice, showPending: $showPending, focusRequest: focusRequest)
+        }
+        .simultaneousGesture(DragGesture(minimumDistance: 24).updating($pull) { value, state, _ in
+            guard !open, value.startLocation.x < 230, value.translation.width > 0, value.translation.width > abs(value.translation.height) * 1.7 else { return }
+            state = value.translation.width
+        }.onEnded { value in
+            guard !open, value.startLocation.x < 230, value.translation.width > abs(value.translation.height) * 1.7 else { return }
+            if value.translation.width > 80 || value.predictedEndTranslation.width > 220 { show(true) }
+        })
+        .overlay {
             if progress > 0.001 {
                 Paper.scrim.opacity(0.36 * progress).ignoresSafeArea()
                     .onTapGesture { show(false) }
                     .accessibilityLabel("Zamknij panel")
             }
+        }
+        .overlay(alignment: .leading) {
             PanelView(onRoute: { next in
                 show(false)
                 route = next
@@ -193,14 +196,16 @@ struct MenuGlyph: Shape {
     }
 }
 
-struct ThreadList<Bottom: View>: View {
+struct ThreadList<Top: View, Bottom: View>: View {
     @Binding var jump: String?
+    @ViewBuilder var top: Top
     @ViewBuilder var bottom: Bottom
     @Environment(AppModel.self) private var model
     @State private var nearBottom = true
     @State private var settled = false
     @State private var unseen = 0
     @State private var window = 36
+    @State private var flash = ""
 
     var body: some View {
         let all = Row.build(model.messages, model.outgoing)
@@ -224,16 +229,20 @@ struct ThreadList<Bottom: View>: View {
                         .padding(.horizontal, 24)
                     }
                     ForEach(rows) { row in
-                        RowView(row: row).padding(.top, row.gap).id(row.id)
+                        RowView(row: row)
+                            .background { RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Paper.tint.opacity(row.id == flash ? 1 : 0)).padding(-8) }
+                            .padding(.top, row.gap)
+                            .id(row.id)
                     }
                     if model.working {
                         WorkRow(text: model.statusText).padding(.top, 16).transition(.opacity)
                     }
-                    Color.clear.frame(height: 14).id("end")
+                    Color.clear.frame(height: 18).id("end")
                 }
                 .padding(.horizontal, 18)
-                .padding(.top, 6)
+                .padding(.top, 10)
                 .animation(Motion.snap, value: model.working)
+                .animation(.easeInOut(duration: 0.35), value: flash)
                 .overlay(alignment: .bottom) {
                     Color.clear.frame(height: 240).allowsHitTesting(false)
                         .onScrollVisibilityChange(threshold: 0.02) { seen in
@@ -245,8 +254,15 @@ struct ThreadList<Bottom: View>: View {
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                top
+                    .background(Paper.bg.ignoresSafeArea(.container, edges: .top))
+                    .overlay(alignment: .bottom) {
+                        LinearGradient(colors: [Paper.bg, Paper.bg.opacity(0)], startPoint: .top, endPoint: .bottom).frame(height: 14).offset(y: 14).allowsHitTesting(false)
+                    }
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                bottom.overlay(alignment: .topTrailing) {
+                bottom.overlay(alignment: .top) {
                     if !nearBottom {
                         Button {
                             Haptic.tap()
@@ -258,14 +274,13 @@ struct ThreadList<Bottom: View>: View {
                             }
                             .foregroundStyle(Paper.fg)
                             .padding(.horizontal, unseen > 0 ? 13 : 0)
-                            .frame(minWidth: 40, minHeight: 40)
+                            .frame(minWidth: 38, minHeight: 38)
                             .background(Paper.card, in: Capsule())
                             .overlay(Capsule().strokeBorder(Paper.line, lineWidth: 1))
-                            .shadow(color: .black.opacity(0.12), radius: 10, y: 5)
+                            .shadow(color: .black.opacity(0.14), radius: 10, y: 5)
                         }
                         .buttonStyle(PressStyle(scale: 0.92))
-                        .padding(.trailing, 14)
-                        .offset(y: -46)
+                        .offset(y: -58)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                         .accessibilityLabel("Przewiń na dół")
                     }
@@ -286,8 +301,12 @@ struct ThreadList<Bottom: View>: View {
                 guard let target else { return }
                 jump = nil
                 if let index = all.firstIndex(where: { $0.id == target }) { window = max(window, all.count - index + 8) }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                Task {
+                    try? await Task.sleep(for: .milliseconds(80))
                     withAnimation(Motion.move) { proxy.scrollTo(target, anchor: .center) }
+                    flash = target
+                    try? await Task.sleep(for: .seconds(1.4))
+                    if flash == target { flash = "" }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -376,9 +395,12 @@ struct BottomBar: View {
                 Task { await voice.start(model) }
             }
         }
-        .padding(.top, 10)
+        .padding(.top, 4)
         .padding(.bottom, 8)
-        .background(LinearGradient(stops: [.init(color: Paper.bg.opacity(0), location: 0), .init(color: Paper.bg, location: 0.3)], startPoint: .top, endPoint: .bottom).ignoresSafeArea(edges: .bottom))
+        .background(Paper.bg.ignoresSafeArea(.container, edges: .bottom))
+        .overlay(alignment: .top) {
+            LinearGradient(colors: [Paper.bg.opacity(0), Paper.bg], startPoint: .top, endPoint: .bottom).frame(height: 26).offset(y: -26).allowsHitTesting(false)
+        }
         .animation(Motion.snap, value: waiting)
         .animation(Motion.snap, value: typing)
         .animation(Motion.snap, value: voice.running && !voice.presented)
@@ -417,7 +439,7 @@ struct VoiceCover: View {
                 .accessibilityLabel("Przerwij Valetowi")
                 Text(voice.label).font(Face.serif(26, .medium)).foregroundStyle(Paper.fg).padding(.top, 34)
                     .contentTransition(.opacity).animation(.easeInOut(duration: 0.2), value: voice.label)
-                Text(voice.muted ? "Mikrofon jest wyciszony." : "Mów śmiało. Stuknij Valeta, żeby mu przerwać.").font(Face.sans(14.5)).foregroundStyle(Paper.muted).multilineTextAlignment(.center).frame(maxWidth: 260).padding(.top, 10)
+                Text(voice.muted ? "Mikrofon jest wyciszony." : voice.state == "connecting" ? "Chwilę, łączę. Możesz już mówić." : "Mów śmiało. Stuknij Valeta, żeby mu przerwać.").font(Face.sans(14.5)).foregroundStyle(Paper.muted).multilineTextAlignment(.center).frame(maxWidth: 260).padding(.top, 10)
                 Spacer()
                 Spacer()
                 HStack(alignment: .top, spacing: 30) {
@@ -508,7 +530,11 @@ struct SearchSheet: View {
             .frame(height: 46)
             .background(Paper.field, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Paper.line, lineWidth: 1))
-            .padding(.horizontal, 16)
+            .overlay(alignment: .trailing) {
+                Button("Anuluj") { dismiss() }.font(Face.sans(16)).tint(Paper.accent).offset(x: 78)
+            }
+            .padding(.leading, 16)
+            .padding(.trailing, 94)
             .padding(.top, 22)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
