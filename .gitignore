@@ -10,3 +10,8 @@ Niepotrzebne/**/podglad*.png
 .prod.vars
 macapp/build/
 Niepotrzebne/skroty/
+
+ios/Local/
+ios/Valet.xcodeproj/
+ios/Info.plist
+.build/
