@@ -1,0 +1,319 @@
+<!doctype html>
+<!-- Concierge Valet for iPhone, direction "Papier" reworked: six key screens of the native app with the interaction rule each one follows, in light and dark. -->
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Valet na iPhone: Papier</title>
+<style>
+* { box-sizing: border-box; margin: 0; }
+:root { --page: #e9e6df; --page-fg: #1d1c19; --page-muted: #6f6b62; --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif; --round: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif; --serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  --bg: #f6f3ec; --fg: #201e1a; --muted: #857f74; --faint: #b5ae9f; --soft: #ece7dc; --card: #fffdf9; --line: #e6e0d3; --sep: #eee9de; --accent: #1f5a46; --on-accent: #fff; --tint: #e2ebe3; --tint-fg: #1b4f3d; --me: #e9e3d6; --field: #fffdf9; --ink: #201e1a; --on-ink: #f6f3ec; --ring: rgba(0, 0, 0, .08); --kbd: #d6d3cc; --key: #fdfcf9; --key2: #b9b5ac; --scrim: rgba(30, 24, 12, .34); --orange: #d9822b; }
+html[data-theme="dark"] { --page: #050505; --page-fg: #efebe3; --page-muted: #8d887e;
+  --bg: #1b1a17; --fg: #ece7dc; --muted: #8f897d; --faint: #5d584f; --soft: #2a2824; --card: #23211d; --line: #33302a; --sep: #302d28; --accent: #63b895; --on-accent: #0f1f18; --tint: #1f2e27; --tint-fg: #8ed3b4; --me: #34312b; --field: #24221e; --ink: #ece7dc; --on-ink: #1b1a17; --ring: rgba(255, 255, 255, .12); --kbd: #2b2a28; --key: #5b5955; --key2: #3d3b38; --scrim: rgba(0, 0, 0, .56); --orange: #e09a4f; }
+body { font: 15px/1.45 var(--sans); background: var(--page); color: var(--page-fg); -webkit-font-smoothing: antialiased; padding: 28px 24px 56px; transition: background .3s ease, color .3s ease; }
+svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1260px; margin: 0 auto 26px; }
+.top h1 { font: 600 22px/1.2 var(--sans); letter-spacing: -.01em; }
+.top p { color: var(--page-muted); margin-top: 3px; max-width: 760px; }
+.switch { display: inline-flex; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--page-fg) 9%, transparent); flex: none; }
+.switch button { font: 600 13px/1 var(--sans); padding: 9px 16px; border-radius: 999px; border: 0; background: none; color: var(--page-muted); cursor: pointer; }
+.switch button[aria-pressed="true"] { background: var(--page-fg); color: var(--page); }
+.grid { display: grid; grid-template-columns: repeat(3, 372px); gap: 44px 46px; justify-content: center; max-width: 1260px; margin: 0 auto; }
+.col h2 { font: 600 16px/1.25 var(--sans); margin: 18px 4px 5px; }
+.col h2 span { color: var(--page-muted); font-weight: 500; margin-right: 6px; font-variant-numeric: tabular-nums; }
+.col p { padding: 0 4px; color: var(--page-muted); font-size: 13.5px; }
+
+.phone { width: 372px; height: 806px; border-radius: 46px; overflow: hidden; position: relative; background: var(--bg); color: var(--fg); box-shadow: 0 0 0 9px #0d0d0d, 0 0 0 10px #2a2a2a, 0 30px 60px -24px rgba(0, 0, 0, .45); font: 16px/1.42 var(--sans); display: flex; flex-direction: column; transition: background .3s ease, color .3s ease; }
+.notch { position: absolute; top: 0; left: 50%; width: 188px; height: 27px; margin-left: -94px; background: #0d0d0d; border-radius: 0 0 18px 18px; z-index: 30; }
+.bar { height: 40px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 6px 26px 0; font: 600 14px/1 var(--sans); position: relative; z-index: 25; }
+.bar i { display: flex; gap: 5px; align-items: center; }
+.bar .cell { width: 17px; height: 11px; border-radius: 2px; background: currentColor; -webkit-mask: linear-gradient(90deg, #000 18%, transparent 18% 27%, #000 27% 45%, transparent 45% 54%, #000 54% 72%, transparent 72% 81%, #000 81%); mask: linear-gradient(90deg, #000 18%, transparent 18% 27%, #000 27% 45%, transparent 45% 54%, #000 54% 72%, transparent 72% 81%, #000 81%); }
+.bar .batt { width: 24px; height: 11.5px; border-radius: 3.5px; border: 1.2px solid currentColor; padding: 1.3px; opacity: .9; }
+.bar .batt::after { content: ""; display: block; width: 72%; height: 100%; border-radius: 1.6px; background: currentColor; }
+.home { position: absolute; bottom: 7px; left: 50%; width: 128px; height: 5px; margin-left: -64px; border-radius: 3px; background: var(--fg); opacity: .9; z-index: 40; }
+
+.nav { flex: none; display: flex; align-items: center; padding: 4px 10px 8px; }
+.ibtn { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--fg); flex: none; }
+.ibtn svg { width: 21px; height: 21px; }
+.who { flex: 1; display: flex; align-items: center; justify-content: center; gap: 9px; }
+.who b { font: 600 18px/1 var(--serif); letter-spacing: -.01em; }
+.puck { border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px var(--ring), 0 8px 18px -12px rgba(0, 0, 0, .5); display: grid; place-items: center; flex: none; width: 28px; height: 28px; }
+.puck svg { width: 100%; height: 100%; stroke: none; }
+.puck .eye { fill: #1d1c19; transform-origin: center; transform-box: fill-box; animation: blink 5.2s infinite; }
+@keyframes blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } }
+
+.thread { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 18px 12px; gap: 13px; }
+.day { align-self: center; font: 600 11.5px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 4px 0 0; }
+.own { display: flex; align-items: center; gap: 7px; font: 500 12.5px/1 var(--sans); color: var(--muted); margin-bottom: -5px; }
+.own .puck { width: 18px; height: 18px; box-shadow: 0 0 0 1px var(--ring); }
+.me { align-self: flex-end; max-width: 80%; padding: 9px 14px; border-radius: 20px 20px 6px 20px; background: var(--me); }
+.va { font: 17.5px/1.5 var(--serif); letter-spacing: -.003em; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; overflow: hidden; }
+.ev { display: flex; align-items: center; gap: 11px; padding: 11px 14px; }
+.ev b { font-weight: 600; font-size: 15px; display: block; }
+.ev small { color: var(--muted); font-size: 13px; }
+.ev small s { color: var(--faint); margin-right: 5px; }
+.ev u { margin-left: auto; text-decoration: none; font: 600 14px/1 var(--sans); color: var(--accent); padding: 8px 2px 8px 10px; }
+.doc { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--soft); color: var(--muted); flex: none; }
+.doc svg { width: 19px; height: 19px; }
+.rail { width: 4px; align-self: stretch; border-radius: 2px; background: var(--orange); flex: none; }
+.work { display: flex; align-items: center; gap: 9px; color: var(--muted); font: 15.5px/1.2 var(--serif); font-style: italic; }
+.work i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: beat 1.2s ease-in-out infinite; }
+.work i:nth-child(2) { animation-delay: .15s; } .work i:nth-child(3) { animation-delay: .3s; margin-right: 3px; }
+@keyframes beat { 0%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+
+.tray { flex: none; margin: 0 12px 8px; height: 46px; border-radius: 16px; background: var(--tint); color: var(--tint-fg); display: flex; align-items: center; gap: 10px; padding: 0 8px 0 10px; font: 600 14.5px/1 var(--sans); }
+.tray em { font: 700 13px/1 var(--round); font-style: normal; min-width: 26px; height: 26px; border-radius: 13px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); }
+.tray span { flex: 1; }
+.tray svg { width: 18px; height: 18px; opacity: .7; }
+
+.composer { flex: none; padding: 0 12px 26px; position: relative; z-index: 12; }
+.field { display: flex; align-items: flex-end; gap: 2px; background: var(--field); border: 1px solid var(--line); border-radius: 26px; padding: 5px; min-height: 50px; box-shadow: 0 10px 28px -18px rgba(60, 45, 20, .5); }
+.field .ibtn { width: 38px; height: 38px; color: var(--muted); }
+.field .ph { flex: 1; color: var(--muted); padding: 8px 4px; font-size: 16.5px; }
+.field .tx { flex: 1; padding: 8px 4px; font-size: 16.5px; line-height: 1.36; }
+.field .tx::after { content: ""; display: inline-block; width: 2px; height: 20px; margin: 0 0 -4px 1px; background: var(--accent); animation: caret 1.1s steps(1) infinite; }
+@keyframes caret { 50% { opacity: 0; } }
+.go { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); flex: none; }
+.go svg { width: 19px; height: 19px; stroke-width: 2.3; }
+.dict { display: flex; align-items: center; gap: 6px; }
+.dict .waves { flex: 1; height: 38px; display: flex; align-items: center; gap: 3px; overflow: hidden; padding: 0 4px; }
+.dict .waves i { width: 3px; border-radius: 2px; background: var(--accent); flex: none; }
+.pill { font: 600 14.5px/1 var(--sans); height: 38px; padding: 0 15px; border-radius: 19px; display: grid; place-items: center; flex: none; }
+.pill.ghost { background: var(--soft); color: var(--fg); }
+.pill.solid { background: var(--accent); color: var(--on-accent); }
+
+.kbd { flex: none; background: var(--kbd); padding: 8px 3px 30px; margin-top: -18px; position: relative; z-index: 10; display: flex; flex-direction: column; gap: 10px; }
+.kbd div { display: flex; justify-content: center; gap: 5.5px; }
+.kbd span { flex: none; width: 31.5px; height: 41px; border-radius: 5.5px; background: var(--key); display: grid; place-items: center; font: 400 21px/1 var(--sans); box-shadow: 0 1px 0 rgba(0, 0, 0, .28); }
+.kbd span.fn { background: var(--key2); width: 42px; font-size: 15px; }
+.kbd span.sp { width: 172px; font-size: 15px; }
+.kbd span.ret { width: 88px; font-size: 15px; background: #0a7aff; color: #fff; }
+.kbd .gap { width: 12px; background: none; box-shadow: none; }
+
+.cover { position: absolute; inset: 0; z-index: 20; background: var(--bg); display: flex; flex-direction: column; align-items: center; padding-top: 44px; }
+.cover .down { align-self: flex-start; margin: 2px 0 0 12px; }
+.cover .stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; margin-top: -30px; }
+.orb { width: 148px; height: 148px; border-radius: 50%; position: relative; display: grid; place-items: center; }
+.orb::before, .orb::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--accent); opacity: .35; animation: ripple 2.8s ease-out infinite; }
+.orb::after { animation-delay: 1.4s; }
+@keyframes ripple { from { transform: scale(1); opacity: .4; } to { transform: scale(1.5); opacity: 0; } }
+.orb .puck { width: 148px; height: 148px; box-shadow: 0 0 0 1px var(--ring), 0 26px 50px -24px rgba(0, 0, 0, .55); }
+.cover h3 { font: 500 26px/1 var(--serif); letter-spacing: -.01em; }
+.cover .hint { color: var(--muted); font-size: 14.5px; text-align: center; max-width: 250px; margin-top: -10px; }
+.ctl { flex: none; display: flex; align-items: flex-start; gap: 30px; padding-bottom: 58px; }
+.ctl div { display: flex; flex-direction: column; align-items: center; gap: 8px; font: 500 12.5px/1 var(--sans); color: var(--muted); }
+.ctl span { width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center; background: var(--soft); color: var(--fg); }
+.ctl span svg { width: 24px; height: 24px; }
+.ctl .end span { width: 74px; height: 74px; background: var(--ink); color: var(--on-ink); margin-top: -8px; }
+.ctl .end span svg { width: 28px; height: 28px; stroke-width: 2.2; }
+
+.scrim { position: absolute; inset: 0; z-index: 18; background: var(--scrim); }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 22; background: var(--bg); border-radius: 30px 30px 0 0; padding: 8px 16px 34px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 -20px 50px -30px rgba(0, 0, 0, .5); }
+.grab { align-self: center; width: 38px; height: 5px; border-radius: 3px; background: var(--faint); opacity: .7; margin-bottom: 2px; }
+.sheet h3 { font: 600 21px/1.1 var(--serif); letter-spacing: -.01em; display: flex; align-items: center; gap: 9px; padding: 2px 4px 0; }
+.sheet h3 em { font: 700 12.5px/1 var(--round); font-style: normal; min-width: 24px; height: 24px; border-radius: 12px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); }
+.kind { display: flex; align-items: center; gap: 8px; padding: 12px 14px 0; font: 600 12.5px/1 var(--sans); color: var(--muted); letter-spacing: .01em; }
+.kind svg { width: 16px; height: 16px; }
+.draft { margin: 10px 14px 0; padding: 10px 13px; border-radius: 16px 16px 5px 16px; background: var(--me); font-size: 15.5px; }
+.acts { display: flex; gap: 8px; padding: 12px 14px 14px; }
+.acts .pill { flex: 1; height: 42px; border-radius: 21px; }
+.q { padding: 8px 14px 4px; font: 16.5px/1.4 var(--serif); }
+.opt { margin: 8px 14px 0; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); font-size: 15px; display: flex; align-items: center; justify-content: space-between; }
+.opt:last-child { margin-bottom: 14px; }
+.opt svg { width: 16px; height: 16px; color: var(--faint); }
+
+.drawer { position: absolute; top: 0; bottom: 0; left: 0; width: 304px; z-index: 22; background: var(--bg); border-radius: 0 30px 30px 0; padding: 52px 16px 30px; display: flex; flex-direction: column; gap: 6px; box-shadow: 20px 0 50px -30px rgba(0, 0, 0, .5); }
+.id { display: flex; align-items: center; gap: 12px; padding: 4px 6px 14px; }
+.id .puck { width: 46px; height: 46px; }
+.id b { font: 600 21px/1.1 var(--serif); display: block; }
+.id small { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.id small i { width: 7px; height: 7px; border-radius: 50%; background: #2fa46f; }
+.label { font: 600 11.5px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 12px 8px 6px; }
+.next { display: flex; align-items: center; gap: 11px; padding: 10px 12px; }
+.next + .next { border-top: 1px solid var(--sep); }
+.next b { font-weight: 600; font-size: 14.5px; flex: 1; }
+.next time { font: 600 13.5px/1 var(--round); color: var(--muted); font-variant-numeric: tabular-nums; }
+.item { display: flex; align-items: center; gap: 13px; padding: 12px 8px; border-radius: 14px; font-size: 16px; }
+.item svg { width: 21px; height: 21px; color: var(--muted); }
+.item span { flex: 1; }
+.item em { font: 600 13px/1 var(--round); font-style: normal; color: var(--muted); }
+.item em.on { color: var(--tint-fg); background: var(--tint); padding: 5px 9px; border-radius: 10px; }
+.spend { margin-top: auto; padding: 12px 8px 0; color: var(--muted); font-size: 13px; border-top: 1px solid var(--sep); display: flex; justify-content: space-between; }
+@media (prefers-reduced-motion: reduce) { .puck .eye, .work i, .orb::before, .orb::after, .field .tx::after { animation: none; } }
+</style>
+</head>
+<body>
+<div class="top">
+  <div><h1>Valet na iPhone: Papier, wersja dopracowana</h1><p>Sześć ekranów, które razem tworzą apkę. Jeden wątek bez zakładek, jedno pole pisania z jednym głównym przyciskiem, a decyzje, na które Valet czeka, zebrane w jednym miejscu.</p></div>
+  <div class="switch" role="group" aria-label="Motyw"><button data-set="light" aria-pressed="true">Jasny</button><button data-set="dark" aria-pressed="false">Ciemny</button></div>
+</div>
+<div class="grid">
+
+  <section class="col">
+    <div class="phone">
+      <div class="nav">
+        <span class="ibtn"><svg viewBox="0 0 24 24"><path d="M5 8h14M5 16h9"/></svg></span>
+        <div class="who"><span class="puck" data-face></span><b>Valet</b></div>
+        <span class="ibtn"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/></svg></span>
+      </div>
+      <div class="thread">
+        <div class="day">Wczoraj</div>
+        <div class="me">Zrób mi listę rzeczy na wyjazd w góry.</div>
+        <div class="va">Gotowe, 24 pozycje w czterech grupach. Dopisałem ładowarkę i dowód.</div>
+        <div class="card"><div class="ev"><span class="doc"><svg viewBox="0 0 24 24"><path d="M7 3.5h7l4 4V20.500H7z"/><path d="M14 3.500v4h4M10 12.500h5M10 16h3"/></svg></span><div><b>Lista na wyjazd</b><small>PDF · 1 strona</small></div><u>Otwórz</u></div></div>
+        <div class="day">Dzisiaj</div>
+        <div class="own"><span class="puck" data-face></span>Valet sam z siebie · 14:20</div>
+        <div class="va">Na grupie klasowej przenieśli sprawdzian z matematyki ze środy na czwartek. Poprawiłem to w kalendarzu.</div>
+        <div class="card"><div class="ev"><span class="rail"></span><div><b>Sprawdzian z matematyki</b><small><s>śr. 9:50</s>czw. 9:50</small></div><u>Cofnij</u></div></div>
+        <div class="me">Co mam jutro?</div>
+        <div class="va">Jutro tylko trening o 17:00. Będzie zimno, od 1 do 4 stopni, bez opadów.</div>
+      </div>
+      <div class="tray"><em>2</em><span>Czekają na Twoją decyzję</span><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+      <div class="composer"><div class="field"><span class="ibtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><span class="ph">Wiadomość</span><span class="ibtn"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span class="go"><svg viewBox="0 0 24 24"><path d="M4 12h1.5M8 8v8M12 4.5v15M16 9v6M19.5 11v2"/></svg></span></div></div>
+    </div>
+    <h2><span>1</span>Wątek</h2>
+    <p>Jeden ekran bez zakładek. Wiadomości, które Valet napisał sam z siebie, mają podpis, więc od razu widać, co jest odpowiedzią, a co jego inicjatywą. Rzeczy do decyzji nie giną w rozmowie: zbiera je pasek nad polem pisania, pod kciukiem.</p>
+  </section>
+
+  <section class="col">
+    <div class="phone">
+      <div class="nav">
+        <span class="ibtn"><svg viewBox="0 0 24 24"><path d="M5 8h14M5 16h9"/></svg></span>
+        <div class="who"><span class="puck" data-face></span><b>Valet</b></div>
+        <span class="ibtn"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/></svg></span>
+      </div>
+      <div class="thread">
+        <div class="me">Co mam jutro?</div>
+        <div class="va">Jutro tylko trening o 17:00. Będzie zimno, od 1 do 4 stopni, bez opadów.</div>
+      </div>
+      <div class="composer"><div class="field"><span class="ibtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><span class="tx">Przypomnij mi godzinę wcześniej, żebym spakował torbę</span><span class="go"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></span></div></div>
+      <div class="kbd" data-keys></div>
+    </div>
+    <h2><span>2</span>Pisanie</h2>
+    <p>Główny przycisk zmienia się z rozmowy w strzałkę wysyłania, a mikrofon znika, żeby został jeden oczywisty ruch. Pole rośnie razem z tekstem i jedzie z klawiaturą jak w Wiadomościach, a pociągnięcie wątku w dół chowa klawiaturę płynnie, pod palcem.</p>
+  </section>
+
+  <section class="col">
+    <div class="phone">
+      <div class="nav">
+        <span class="ibtn"><svg viewBox="0 0 24 24"><path d="M5 8h14M5 16h9"/></svg></span>
+        <div class="who"><span class="puck" data-face></span><b>Valet</b></div>
+        <span class="ibtn"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/></svg></span>
+      </div>
+      <div class="thread">
+        <div class="day">Dzisiaj</div>
+        <div class="me">Co mam jutro?</div>
+        <div class="va">Jutro tylko trening o 17:00. Będzie zimno, od 1 do 4 stopni, bez opadów.</div>
+        <div class="me">Przypomnij mi godzinę wcześniej, żebym spakował torbę</div>
+        <div class="work"><i></i><i></i><i></i>Ustawia przypomnienie</div>
+      </div>
+      <div class="composer"><div class="field dict"><span class="ibtn"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></span><span class="waves" data-waves></span><span class="pill ghost">Wstaw</span><span class="pill solid">Wyślij</span></div></div>
+    </div>
+    <h2><span>3</span>Dyktowanie</h2>
+    <p>Stuknięcie mikrofonu zamienia pole w fale, które ruszają się z Twoim głosem. „Wstaw” wkleja tekst do pola do poprawki, „Wyślij” wysyła od razu, krzyżyk anuluje. Nad polem widać, co Valet właśnie robi, zamiast samych kropek.</p>
+  </section>
+
+  <section class="col">
+    <div class="phone">
+      <div class="cover">
+        <span class="ibtn down"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+        <div class="stage">
+          <div class="orb"><span class="puck" data-face></span></div>
+          <h3>Słucha</h3>
+          <p class="hint">Mów śmiało. Stuknij Valeta, żeby mu przerwać.</p>
+        </div>
+        <div class="ctl">
+          <div><span><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M4 4l16 16"/></svg></span>Wycisz</div>
+          <div class="end"><span><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></span>Zakończ</div>
+          <div><span><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"/></svg></span>Pisz</div>
+        </div>
+      </div>
+    </div>
+    <h2><span>4</span>Rozmowa</h2>
+    <p>Jedyne wejście do rozmowy to główny przycisk przy pustym polu, nigdzie się nie powtarza. Pełny ekran bez tekstu, sam Valet i jego stan. Strzałka u góry zwija rozmowę do małej pastylki, żeby w trakcie zajrzeć do wątku.</p>
+  </section>
+
+  <section class="col">
+    <div class="phone">
+      <div class="nav">
+        <span class="ibtn"><svg viewBox="0 0 24 24"><path d="M5 8h14M5 16h9"/></svg></span>
+        <div class="who"><span class="puck" data-face></span><b>Valet</b></div>
+        <span class="ibtn"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/></svg></span>
+      </div>
+      <div class="thread">
+        <div class="day">Dzisiaj</div>
+        <div class="va">Na grupie klasowej przenieśli sprawdzian z matematyki ze środy na czwartek.</div>
+      </div>
+      <div class="scrim"></div>
+      <div class="sheet">
+        <span class="grab"></span>
+        <h3>Czeka na Ciebie <em>2</em></h3>
+        <div class="card">
+          <div class="kind"><svg viewBox="0 0 24 24"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4 19.5l1.4-4.3A7.5 7.5 0 1 1 20 11.5z"/></svg>WhatsApp · do: Mama</div>
+          <div class="draft">Będę o 18:30, trening się przedłuży.</div>
+          <div class="acts"><span class="pill ghost">Odrzuć</span><span class="pill ghost">Popraw</span><span class="pill solid">Wyślij</span></div>
+        </div>
+        <div class="card">
+          <div class="kind"><svg viewBox="0 0 24 24"><path d="M7 9l3 3-3 3M13 15h4"/></svg>Claude Code · sesja „Gra 3D”</div>
+          <div class="q">Którą wersję wypuścić?</div>
+          <div class="opt">Nową, z edytorem wyglądu<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+          <div class="opt">Poprzednią, bez zmian<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+        </div>
+      </div>
+    </div>
+    <h2><span>5</span>Czeka na Ciebie</h2>
+    <p>Szkice wiadomości i pytania z sesji w jednym arkuszu, od najstarszego. Główna akcja zawsze po prawej, pod kciukiem, a odrzucenie daleko od niej. Po decyzji karta znika stąd, a w wątku zostaje jedna linijka z wynikiem.</p>
+  </section>
+
+  <section class="col">
+    <div class="phone">
+      <div class="nav">
+        <span class="ibtn"><svg viewBox="0 0 24 24"><path d="M5 8h14M5 16h9"/></svg></span>
+        <div class="who"><span class="puck" data-face></span><b>Valet</b></div>
+        <span class="ibtn"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/></svg></span>
+      </div>
+      <div class="thread">
+        <div class="me">Co mam jutro?</div>
+        <div class="va">Jutro tylko trening o 17:00. Będzie zimno, od 1 do 4 stopni, bez opadów.</div>
+      </div>
+      <div class="composer"><div class="field"><span class="ibtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><span class="ph">Wiadomość</span><span class="go"><svg viewBox="0 0 24 24"><path d="M4 12h1.5M8 8v8M12 4.5v15M16 9v6M19.5 11v2"/></svg></span></div></div>
+      <div class="scrim"></div>
+      <div class="drawer">
+        <div class="id"><span class="puck" data-face></span><div><b>Valet</b><small><i></i>Czuwa · Mac online · 3 sesje</small></div></div>
+        <div class="label">Najbliższe</div>
+        <div class="card">
+          <div class="next"><b>Trening</b><time>jutro 17:00</time></div>
+          <div class="next"><b>Sprawdzian z matematyki</b><time>czw. 9:50</time></div>
+        </div>
+        <div class="label">Valet</div>
+        <div class="item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/></svg><span>W tle</span><em class="on">1 trwa</em></div>
+        <div class="item"><svg viewBox="0 0 24 24"><path d="M11 4l1.8 5.2L18 11l-5.2 1.8L11 18l-1.8-5.2L4 11l5.2-1.8z"/></svg><span>Stworzone</span><em>12</em></div>
+        <div class="item"><svg viewBox="0 0 24 24"><path d="M6 4h9l3 3v13H6z"/><path d="M9 11h6M9 15h4"/></svg><span>Pamięć</span><em>31</em></div>
+        <div class="item"><svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6M10 19a2 2 0 0 0 4 0"/></svg><span>Przypomnienia</span><em>4</em></div>
+        <div class="item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></svg><span>Ustawienia</span></div>
+        <div class="spend"><span>Dzisiaj</span><span>0,84 z 6 USD</span></div>
+      </div>
+    </div>
+    <h2><span>6</span>Panel</h2>
+    <p>Wszystko poza rozmową jest w panelu z lewej: przycisk u góry albo przeciągnięcie od krawędzi. Na górze najbliższe wydarzenia, niżej zadania w tle, stworzone pliki, pamięć, przypomnienia i ustawienia. Zakładki na dole znikają i nie zabierają miejsca.</p>
+  </section>
+
+</div>
+<script>
+const chrome = '<div class="notch"></div><div class="bar"><span>9:41</span><i><span class="cell"></span><span class="batt"></span></i></div>';
+for (const phone of document.querySelectorAll(".phone")) { phone.insertAdjacentHTML("afterbegin", chrome); phone.insertAdjacentHTML("beforeend", '<div class="home"></div>'); }
+for (const face of document.querySelectorAll("[data-face]")) face.innerHTML = '<svg viewBox="0 0 100 100"><rect class="eye" x="32" y="37" width="10" height="26" rx="5"/><rect class="eye" x="58" y="37" width="10" height="26" rx="5"/></svg>';
+const row = (keys) => `<div>${[...keys].map((k) => `<span>${k}</span>`).join("")}</div>`;
+for (const kbd of document.querySelectorAll("[data-keys]")) kbd.innerHTML = row("qwertyuiop") + row("asdfghjkl") + `<div><span class="fn">⇧</span><span class="gap"></span>${[..."zxcvbnm"].map((k) => `<span>${k}</span>`).join("")}<span class="gap"></span><span class="fn">⌫</span></div>` + '<div><span class="fn">123</span><span class="fn">☺</span><span class="sp">spacja</span><span class="ret">wyślij</span></div>';
+const levels = [5, 8, 12, 7, 16, 24, 30, 18, 11, 22, 32, 26, 14, 9, 19, 28, 34, 21, 12, 7, 15, 25, 31, 17, 10, 6, 13, 23, 29, 16, 8, 5];
+for (const waves of document.querySelectorAll("[data-waves]")) waves.innerHTML = levels.map((h) => `<i style="height:${h}px"></i>`).join("");
+const root = document.documentElement, buttons = [...document.querySelectorAll(".switch button")];
+const apply = (theme) => { root.dataset.theme = theme; for (const b of buttons) b.setAttribute("aria-pressed", String(b.dataset.set === theme)); };
+for (const b of buttons) b.addEventListener("click", () => apply(b.dataset.set));
+const asked = new URLSearchParams(location.search).get("theme");
+apply(asked === "dark" || (!asked && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light");
+</script>
+</body>
+</html>
