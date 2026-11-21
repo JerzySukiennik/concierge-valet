@@ -28,8 +28,14 @@ build_phone() {
   team="$(security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject -nameopt multiline | awk -F'= ' '/organizationalUnitName/{print $2}')"
   nice -n 10 xcodebuild -project Valet.xcodeproj -scheme Valet -configuration Release -destination 'generic/platform=iOS' \
     -derivedDataPath "$DERIVED" -allowProvisioningUpdates DEVELOPMENT_TEAM="$team" CODE_SIGN_STYLE=Automatic \
-    CURRENT_PROJECT_VERSION="$(git -C "$ROOT" rev-list --count HEAD)" -jobs 2 -quiet build
+    CURRENT_PROJECT_VERSION="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || date +%y%m%d%H)" -jobs 2 -quiet build
   echo "$APP"
+}
+
+keep() {
+  if [ -d "$HOME/.valet-ios/src/ios" ] && [ "$HERE" != "$HOME/.valet-ios/src/ios" ]; then
+    rsync -a --delete --exclude Valet.xcodeproj --exclude Info.plist "$HERE/" "$HOME/.valet-ios/src/ios/"
+  fi
 }
 
 install_phone() {
@@ -54,6 +60,6 @@ case "$MODE" in
     ;;
   build) build_phone ;;
   install) install_phone ;;
-  device) build_phone; install_phone ;;
+  device) build_phone; install_phone; keep ;;
   *) echo "Usage: ios/build.sh mac|sim|build|install|device" >&2; exit 1 ;;
 esac
