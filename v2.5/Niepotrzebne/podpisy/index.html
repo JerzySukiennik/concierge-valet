@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podpis Valeta w WhatsAppie</title>
+<style>
+  :root { --bg: #f8f6f1; --fg: #1d1c19; --muted: #7d7a72; --line: #e6e1d6; --chat: #efeae2; --out: #d9fdd3; --meta: #667781; --serif: ui-serif, "New York", Georgia, serif; }
+  * { box-sizing: border-box; margin: 0; }
+  body { font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif; background: var(--bg); color: var(--fg); padding: 36px 40px 44px; }
+  h1 { font: 500 28px/1.1 var(--serif); letter-spacing: -0.01em; }
+  p.lead { color: var(--muted); margin: 6px 0 26px; max-width: 640px; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  .v { background: #fff; border: 1px solid var(--line); border-radius: 18px; overflow: hidden; display: grid; grid-template-rows: auto 1fr; }
+  .v header { display: flex; align-items: baseline; gap: 10px; padding: 14px 16px 12px; }
+  .v header b { font: 500 22px/1 var(--serif); }
+  .v header span { font-weight: 600; }
+  .v header em { margin-left: auto; font-style: normal; font-size: 12.5px; color: var(--muted); }
+  .chat { background: var(--chat); padding: 18px 14px 20px; display: grid; align-content: end; justify-items: end; min-height: 190px; }
+  .bubble { background: var(--out); border-radius: 12px 12px 3px 12px; padding: 7px 10px 6px; max-width: 92%; font-size: 14.5px; line-height: 1.38; box-shadow: 0 1px 0.5px rgba(11, 20, 26, .13); }
+  .bubble .sig { display: block; margin-top: 12px; }
+  .bubble .time { display: block; text-align: right; font-size: 11px; color: var(--meta); margin-top: 2px; }
+  .bubble code { font: 13px ui-monospace, "SF Mono", Menlo, monospace; background: rgba(11, 20, 26, .07); padding: 1px 5px; border-radius: 4px; }
+  .bubble .quote { display: block; border-left: 4px solid rgba(11, 20, 26, .28); padding-left: 8px; color: #54656f; }
+  .note { margin-top: 22px; color: var(--muted); font-size: 13.5px; max-width: 720px; }
+</style>
+</head>
+<body>
+<h1>Podpis Valeta w WhatsAppie</h1>
+<p class="lead">Tak wyglądałaby ta sama wiadomość z każdym wariantem podpisu. Imię bierze się z nazwy agenta, więc po zmianie nazwy podpis zmienia się sam.</p>
+<div class="grid" id="grid"></div>
+<p class="note">Podpis dokłada aplikacja przy wysyłce, nie model, więc zawsze jest taki sam. Teraz ustawiony jest wariant 1.</p>
+<script type="module">
+const NAME = "Valet", OWNER = "Jurka";
+const esc = (s) => s.replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+const TEXT = "Jutro kartkówka z hiszpańskiego (ser, hay, tener, estar), a w piątek wypracowanie z polskiego na lekcji.";
+const variants = [
+  ["made", "Made by", "krótki, po angielsku", `<em>Made by ${NAME}</em>`],
+  ["asystent", "Asystent", "kto to jest", `<em>${NAME}, asystent ${OWNER}</em>`],
+  ["napisal", "Pełny", "mówi, że to AI i że to zatwierdziłeś", `<em>Napisał ${NAME}, asystent AI. Jurek przeczytał i zatwierdził.</em>`],
+  ["cytat", "Cytat", "wyraźnie oddzielony blok", `<span class="quote">${NAME} · asystent AI ${OWNER}</span>`],
+  ["tylda", "Tylda", "najkrótszy", `~ ${NAME}`],
+  ["kod", "Etykieta", "jak metka", `<code>${NAME}</code>`],
+];
+document.getElementById("grid").innerHTML = variants.map(([key, title, hint, sig], i) => `<section class="v"><header><b>${i + 1}</b><span>${title}</span><em>${hint}</em></header><div class="chat"><div class="bubble">${esc(TEXT)}<span class="sig">${sig}</span><span class="time">14:32</span></div></div></section>`).join("");
+</script>
+</body>
+</html>
