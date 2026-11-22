@@ -1,5 +1,5 @@
 #!/bin/bash
-# Keeps the iPhone app alive past the 7 days a free signing profile lasts: when under 3 days remain and the phone is in reach, it asks for a fresh profile, rebuilds and reinstalls. Usage: ios/refresh.sh [--force]
+# Keeps the iPhone app alive past the 7 days a free signing profile lasts: when under 3 days remain and the phone is in reach and unlocked, it asks for a fresh profile, rebuilds and reinstalls. Usage: ios/refresh.sh [--force]
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
@@ -28,6 +28,14 @@ if [ "${1:-}" != "--force" ] && [ "$LEFT" -gt 72 ]; then exit 0; fi
 UDID="$(phone)"
 if [ -z "$UDID" ] || ! xcrun devicectl device info details --device "$UDID" --timeout 25 >/dev/null 2>&1; then
   say "phone not in reach, $LEFT h left on the profile"
+  exit 0
+fi
+STATE="$(mktemp)"
+xcrun devicectl device info lockState --device "$UDID" --json-output "$STATE" >/dev/null 2>&1 || true
+LOCKED="$(python3 -I -c "import json,sys; print('yes' if json.load(open(sys.argv[1])).get('result',{}).get('passcodeRequired', True) else 'no')" "$STATE" 2>/dev/null || echo yes)"
+rm -f "$STATE"
+if [ "$LOCKED" = "yes" ]; then
+  say "phone locked, $LEFT h left on the profile"
   exit 0
 fi
 for store in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" "$HOME/Library/MobileDevice/Provisioning Profiles"; do

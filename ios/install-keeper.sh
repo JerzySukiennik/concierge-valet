@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Installs the keeper of the iPhone app on this Mac: a copy of the app's sources in ~/.valet-ios/src and a background job that runs ios/refresh.sh every three hours, so the app is renewed before its 7-day profile runs out.
+# Installs the keeper of the iPhone app on this Mac: a copy of the app's sources in ~/.valet-ios/src and a background job that runs ios/refresh.sh every half hour, so the app is renewed before its 7-day profile runs out.
 set -e
 cd "$(dirname "$0")"
 DIR="$HOME/.valet-ios"
@@ -15,7 +15,7 @@ cat > "$PLIST" <<PLIST
 <dict>
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key><array><string>/bin/bash</string><string>$DIR/src/ios/refresh.sh</string></array>
-  <key>StartInterval</key><integer>10800</integer>
+  <key>StartInterval</key><integer>1800</integer>
   <key>RunAtLoad</key><false/>
   <key>ProcessType</key><string>Background</string>
   <key>Nice</key><integer>10</integer>
