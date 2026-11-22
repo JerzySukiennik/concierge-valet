@@ -244,14 +244,24 @@ async function connect() {
     const { ticket } = await res.json();
     const ws = new WebSocket(`${API.replace(/^http/, "ws")}/api/bridge?k=${ticket}&role=wa`);
     bridge = ws;
+    let heard = Date.now();
     ws.addEventListener("open", () => {
       S.apiRetry = 2000;
+      heard = Date.now();
       log("bridge open");
       hello();
       clearInterval(pinger);
-      pinger = setInterval(() => { try { ws.send("ping"); } catch (err) {} }, 25000);
+      pinger = setInterval(() => {
+        if (Date.now() - heard > 70000) {
+          log("bridge silent, reconnecting");
+          try { ws.close(); } catch (err) {}
+          return again();
+        }
+        try { ws.send("ping"); } catch (err) {}
+      }, 25000);
     });
     ws.addEventListener("message", async (e) => {
+      heard = Date.now();
       if (e.data === "pong" || typeof e.data !== "string") return;
       let m;
       try { m = JSON.parse(e.data); } catch (err) { return; }

@@ -31,6 +31,7 @@ final class AppModel {
 
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
     @ObservationIgnored private var retry: Double = 1
+    @ObservationIgnored private var heardAt = Date()
     @ObservationIgnored private var pinger: Task<Void, Never>?
     @ObservationIgnored private var saver: Task<Void, Never>?
     @ObservationIgnored private var calm: Task<Void, Never>?
@@ -84,8 +85,13 @@ final class AppModel {
 
     func resume() {
         active = true
-        guard paired, socket == nil else { return }
-        start()
+        guard paired else { return }
+        if let stale = socket, Date().timeIntervalSince(heardAt) > 30 {
+            socket = nil
+            pinger?.cancel()
+            stale.cancel(with: .goingAway, reason: nil)
+        }
+        if socket == nil { start() } else { Task { await sync() } }
     }
 
     func call(_ path: String, _ body: JSON? = nil, timeout: TimeInterval = 30) async throws -> JSON {
@@ -186,9 +192,15 @@ final class AppModel {
                 task.resume()
                 setOnline(true)
                 pinger?.cancel()
-                pinger = Task {
+                heardAt = Date()
+                pinger = Task { [weak self] in
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(25))
+                        guard let self, !Task.isCancelled else { return }
+                        if Date().timeIntervalSince(self.heardAt) > 65 {
+                            task.cancel(with: .goingAway, reason: nil)
+                            return
+                        }
                         try? await task.send(.string("ping"))
                     }
                 }
@@ -204,6 +216,7 @@ final class AppModel {
         var heard = false
         while socket === task {
             guard let message = try? await task.receive() else { break }
+            heardAt = Date()
             if !heard {
                 heard = true
                 retry = 1

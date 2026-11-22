@@ -190,6 +190,7 @@ export class Valet extends DurableObject {
       const want = url.searchParams.get("role"), role = want === "wa" ? "role:wa" : want === "code" ? "role:code" : "role:mac";
       if (mac) for (const old of this.ctx.getWebSockets(role)) { try { old.close(1000, "replaced"); } catch (e) {} }
       this.ctx.acceptWebSocket(pair[1], mac ? ["bridge", role] : ["app"]);
+      pair[1].serializeAttachment({ at: Date.now() });
       pair[1].send(JSON.stringify(mac ? this.macConfig(role) : { t: "status", ...this.currentStatus() }));
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
@@ -427,7 +428,16 @@ export class Valet extends DurableObject {
     }
   }
 
+  bridges(role, skip = null) {
+    return this.ctx.getWebSockets(role)
+      .filter((ws) => ws !== skip && ws.readyState === 1)
+      .map((ws) => ({ ws, heard: this.heard?.get(ws) || 0, at: ws.deserializeAttachment()?.at || 0 }))
+      .sort((a, b) => b.heard - a.heard || b.at - a.at)
+      .map((x) => x.ws);
+  }
+
   async webSocketMessage(ws, raw) {
+    (this.heard ||= new WeakMap()).set(ws, Date.now());
     if (raw === "ping") return ws.send("pong");
     if (typeof raw !== "string" || !this.ctx.getTags(ws).includes("bridge")) return;
     let m;
@@ -470,7 +480,7 @@ export class Valet extends DurableObject {
 
   macInfo(closing = null) {
     const info = this.get("mac", null), link = this.get("link", null), linked = this.get("waVia", "app") === "link";
-    const live = (role) => this.ctx.getWebSockets(role).filter((x) => x !== closing).length > 0;
+    const live = (role) => this.bridges(role, closing).length > 0;
     const macOn = live("role:mac"), linkOn = live("role:wa"), open = linkOn && link?.state === "open", pilotOn = live("role:code");
     return {
       code: { on: pilotOn, sessions: pilotOn ? this.get("pilot", null)?.sessions || 0 : 0 },
@@ -493,15 +503,23 @@ export class Valet extends DurableObject {
 
   bridgeCall(tool, input = {}, ms = 25000) {
     const pilot = tool.startsWith("code.") || tool.startsWith("hub."), linked = tool.startsWith("wa.") && this.get("waVia", "app") === "link";
-    const ws = this.ctx.getWebSockets(pilot ? "role:code" : linked ? "role:wa" : "role:mac")[0];
+    const id = crypto.randomUUID(), body = JSON.stringify({ t: "call", id, tool, input });
+    let ws = null;
+    for (const candidate of this.bridges(pilot ? "role:code" : linked ? "role:wa" : "role:mac")) {
+      try { candidate.send(body); ws = candidate; break; } catch (e) { try { candidate.close(1011, "dead"); } catch (err) {} }
+    }
     if (!ws) return Promise.reject(new Error(pilot ? "Claude Code on his Mac is out of reach: the Mac is asleep or off, or the pilot service is not running" : linked ? "the WhatsApp link is not connected right now" : "the Mac is not connected: the Concierge Valet app on his Mac has to be running"));
-    const id = crypto.randomUUID();
-    const result = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.calls.delete(id); reject(new Error("the Mac did not answer in time")); }, ms);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.calls.delete(id);
+        if (Date.now() - (this.heard?.get(ws) || 0) > 60000) {
+          try { ws.close(1011, "silent"); } catch (e) {}
+          this.broadcast({ t: "mac", mac: this.macInfo(ws) });
+        }
+        reject(new Error("the Mac did not answer in time"));
+      }, ms);
       this.calls.set(id, { resolve, reject, timer });
     });
-    ws.send(JSON.stringify({ t: "call", id, tool, input }));
-    return result;
   }
 
   cardRows(kind, minutes = 720) {
