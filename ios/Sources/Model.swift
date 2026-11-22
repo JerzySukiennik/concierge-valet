@@ -1,6 +1,17 @@
 // Data the server speaks: a loose JSON value and thin typed views over it, so a field the server adds never breaks decoding.
 import Foundation
 
+struct APIError: Error { let status: Int }
+
+extension Error {
+    var brief: String {
+        if let refused = self as? APIError { return refused.status == 0 ? "no answer from the server" : "HTTP \(refused.status)" }
+        if let network = self as? URLError { return "network \(network.code.rawValue)" }
+        let plain = self as NSError
+        return "\(plain.domain) \(plain.code)"
+    }
+}
+
 enum JSON: Hashable, ExpressibleByStringLiteral, ExpressibleByIntegerLiteral, ExpressibleByFloatLiteral, ExpressibleByBooleanLiteral, ExpressibleByArrayLiteral, ExpressibleByDictionaryLiteral, ExpressibleByNilLiteral {
     case null
     case bool(Bool)

@@ -321,6 +321,7 @@ struct ThreadList<Top: View, Bottom: View>: View {
                 }
             }
             .task {
+                Journal.shared.note("thread on screen", "\(Journal.since(Journal.started)) after start, \(rows.count) rows")
                 try? await Task.sleep(for: .seconds(1))
                 settled = true
             }

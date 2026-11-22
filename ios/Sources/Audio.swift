@@ -178,9 +178,15 @@ final class Dictation {
     @ObservationIgnored private var final = ""
     @ObservationIgnored private var interim = ""
     @ObservationIgnored private var touched = Date()
+    @ObservationIgnored private var startedAt = Date()
 
     func start(_ model: AppModel) async -> Bool {
-        guard !active, await AVAudioApplication.requestRecordPermission() else { return false }
+        guard !active else { return true }
+        guard await AVAudioApplication.requestRecordPermission() else {
+            Journal.shared.note("dictation: microphone not allowed")
+            return false
+        }
+        startedAt = Date()
         queue = []
         live = false
         over = false
@@ -191,6 +197,7 @@ final class Dictation {
         do {
             try mic.start(conversation: false) { [weak self] data, level in self?.heard(data, level) }
         } catch {
+            Journal.shared.note("dictation: microphone failed", error.brief)
             return false
         }
         active = true
@@ -198,6 +205,7 @@ final class Dictation {
         socket.onClose = { [weak self] in self?.done = true }
         Task {
             guard let ticket = try? await model.call("/api/voice/token", ["mode": "dictate"]), let url = URL(string: ticket["url"].text), active else {
+                if active { Journal.shared.note("dictation: no token from the server") }
                 done = true
                 return
             }
@@ -249,7 +257,9 @@ final class Dictation {
         }
         socket.close()
         active = false
-        return tidy("\(final) \(interim)")
+        let text = tidy("\(final) \(interim)")
+        Journal.shared.note("dictation done", "\(text.count) chars, recorded \(Int(began.timeIntervalSince(startedAt))) s, text after \(Journal.since(began)), transcriber \(live ? "connected" : "never connected")")
+        return text
     }
 
     func cancel() {
@@ -285,6 +295,8 @@ final class VoiceCenter {
     @ObservationIgnored private var startedAt: Date?
     @ObservationIgnored private var loudAt = Date()
     @ObservationIgnored private var floor: Float = 0.01
+    @ObservationIgnored private var began = Date()
+    @ObservationIgnored private var turns = 0
 
     private static let silence = Data(count: 1600)
 
@@ -297,10 +309,13 @@ final class VoiceCenter {
             return
         }
         guard await AVAudioApplication.requestRecordPermission() else {
+            Journal.shared.note("voice: microphone not allowed")
             model.say("Włącz mikrofon dla Valeta w Ustawieniach iPhone'a")
             return
         }
         self.model = model
+        began = Date()
+        turns = 0
         live = false
         busy = 0
         drop = false
@@ -320,9 +335,11 @@ final class VoiceCenter {
         do {
             try link.start(conversation: true) { [weak self] data, level in self?.heard(data, level) }
         } catch {
+            Journal.shared.note("voice: microphone failed", error.brief)
             model.say("Nie udało się włączyć mikrofonu")
             return
         }
+        Journal.shared.note("voice start")
         running = true
         presented = true
         UIApplication.shared.isIdleTimerDisabled = true
@@ -332,6 +349,7 @@ final class VoiceCenter {
     private func connect(slow: String) async {
         guard let model else { return }
         guard let ticket = try? await model.call("/api/voice/token", slow.isEmpty ? [:] : ["slow": .string(slow)]), let url = URL(string: ticket["url"].text) else {
+            Journal.shared.note("voice: no token from the server")
             end("Nie udało się połączyć z głosem.")
             return
         }
@@ -383,6 +401,7 @@ final class VoiceCenter {
             return
         }
         swaps += 1
+        Journal.shared.note("voice stalled, switching model", voiceModel)
         let old = socket, slow = voiceModel
         live = false
         replay = true
@@ -402,6 +421,7 @@ final class VoiceCenter {
             queue = []
             for chunk in waiting { push(chunk) }
             loudAt = Date()
+            Journal.shared.note("voice ready", "\(voiceModel), \(Journal.since(began)) after start\(replay ? ", replaying \(waiting.count) chunks" : "")")
             Haptic.done()
             if !replay {
                 state = "listening"
@@ -456,8 +476,9 @@ final class VoiceCenter {
     private func ask(_ calls: [JSON]) {
         guard let model else { return }
         busy += 1
+        turns += 1
         state = "thinking"
-        let line = socket
+        let line = socket, asked = Date()
         Task {
             var answers: [JSON] = []
             for call in calls {
@@ -466,6 +487,7 @@ final class VoiceCenter {
                 answers.append(["id": call["id"], "name": call["name"], "response": ["result": .string(result)]])
             }
             busy = max(0, busy - 1)
+            Journal.shared.note("voice question answered", "\(calls.count) call, \(Journal.since(asked))")
             guard running, socket === line else { return }
             line.send(["toolResponse": ["functionResponses": .array(answers)]])
         }
@@ -486,6 +508,7 @@ final class VoiceCenter {
 
     func end(_ message: String = "") {
         guard running else { return }
+        Journal.shared.note("voice end", "\(message.isEmpty ? "by the owner or the server" : message), lasted \(Int(Date().timeIntervalSince(began))) s, \(turns) questions, connected \(live)")
         running = false
         presented = false
         live = false

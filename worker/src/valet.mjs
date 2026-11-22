@@ -82,6 +82,7 @@ export class Valet extends DurableObject {
     s.exec("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)");
     s.exec("CREATE TABLE IF NOT EXISTS blobs (id TEXT, seq INTEGER, data BLOB, PRIMARY KEY (id, seq))");
     s.exec("CREATE TABLE IF NOT EXISTS trace (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, kind TEXT, origin INTEGER, model TEXT, ms INTEGER, usd REAL, asked TEXT, said TEXT, steps TEXT)");
+    s.exec("CREATE TABLE IF NOT EXISTS applog (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, app TEXT, what TEXT, detail TEXT)");
     s.exec("CREATE TABLE IF NOT EXISTS inbox (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, chat TEXT, kind TEXT, sender TEXT, text TEXT)");
     this.calls = new Map();
     ctx.blockConcurrencyWhile(async () => { this.seed(); await this.rearm(); });
@@ -206,6 +207,14 @@ export class Valet extends DurableObject {
     switch (`${req.method} ${path}`) {
       case "GET /api/boot":
         return json(this.boot());
+      case "GET /api/log":
+        return json({ log: this.rows("SELECT * FROM applog WHERE id < ? ORDER BY id DESC LIMIT ?", +url.searchParams.get("before") || 1e15, Math.max(1, Math.min(300, +url.searchParams.get("n") || 60))) });
+      case "POST /api/log": {
+        const app = String(body.app || "app").slice(0, 20);
+        for (const e of (Array.isArray(body.entries) ? body.entries : []).slice(0, 300)) this.sql.exec("INSERT INTO applog (ts, app, what, detail) VALUES (?, ?, ?, ?)", +e.ts || Date.now(), app, String(e.what || "").slice(0, 80), String(e.detail || "").slice(0, 500));
+        this.sql.exec("DELETE FROM applog WHERE id <= (SELECT MAX(id) FROM applog) - 800");
+        return json({ ok: true });
+      }
       case "GET /api/trace":
         return json({ trace: this.rows("SELECT * FROM trace WHERE id < ? ORDER BY id DESC LIMIT ?", +url.searchParams.get("before") || 1e15, Math.max(1, Math.min(100, +url.searchParams.get("n") || 20))).map((r) => ({ ...r, steps: JSON.parse(r.steps || "[]") })) });
       case "GET /api/thread":

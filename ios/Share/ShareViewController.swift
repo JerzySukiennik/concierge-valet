@@ -51,7 +51,8 @@ final class ShareModel {
     func load() async {
         guard phase == "loading" else { return }
         let items = context?.inputItems as? [NSExtensionItem] ?? []
-        for provider in items.flatMap({ $0.attachments ?? [] }) {
+        let providers = items.flatMap { $0.attachments ?? [] }, began = Date()
+        for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
                 if let found = await ShareModel.picture(provider) { pieces.append(.image(id: UUID(), data: found.0, width: found.1, height: found.2, thumb: found.3)) }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
@@ -70,9 +71,29 @@ final class ShareModel {
         } else if pieces.isEmpty {
             phase = "failed"
             problem = "Tego nie umiem wysłać do Valeta."
+            await log("nothing usable", providers.map { $0.registeredTypeIdentifiers.joined(separator: " ") }.joined(separator: " | "))
         } else {
             phase = "ready"
+            if pieces.count < providers.count { await log("some items skipped", "\(pieces.count) of \(providers.count) read in \(Int(Date().timeIntervalSince(began) * 1000)) ms") }
         }
+    }
+
+    private var summary: String {
+        var images = 0, files = 0, links = 0, texts = 0, bytes = 0
+        for piece in pieces {
+            switch piece {
+            case .image(_, let data, _, _, _): images += 1; bytes += data.count
+            case .file(_, _, _, let data): files += 1; bytes += data.count
+            case .link: links += 1
+            case .text: texts += 1
+            }
+        }
+        return "\(images) images, \(files) files, \(links) links, \(texts) texts, \(bytes / 1024) KB"
+    }
+
+    private func log(_ what: String, _ detail: String = "") async {
+        let entry: JSON = ["ts": .number((Date().timeIntervalSince1970 * 1000).rounded()), "what": .string(what), "detail": .string(String(detail.prefix(400)))]
+        _ = try? await call("/api/log", ["app": "share", "entries": [entry]], timeout: 6)
     }
 
     nonisolated private static func item(_ provider: NSItemProvider, _ type: UTType) async -> Any? {
@@ -117,15 +138,16 @@ final class ShareModel {
         }
     }
 
-    private func call(_ path: String, _ body: JSON) async throws -> JSON {
-        guard let url = base.flatMap({ URL(string: path, relativeTo: $0) }) else { throw URLError(.badURL) }
-        var request = URLRequest(url: url, timeoutInterval: 120)
+    private func call(_ path: String, _ body: JSON, timeout: TimeInterval = 120) async throws -> JSON {
+        guard let url = base.flatMap({ URL(string: path, relativeTo: $0) }) else { throw APIError(status: 0) }
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body.data
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let code = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(code) else { throw URLError(.badServerResponse) }
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else { throw APIError(status: code) }
         return JSON.parse(data) ?? .null
     }
 
@@ -133,6 +155,7 @@ final class ShareModel {
         guard ready else { return }
         phase = "sending"
         problem = ""
+        let began = Date()
         do {
             var files: [JSON] = []
             var lines = [note.trimmingCharacters(in: .whitespacesAndNewlines)]
@@ -151,11 +174,13 @@ final class ShareModel {
             }
             _ = try await call("/api/message", ["text": .string(lines.filter { !$0.isEmpty }.joined(separator: "\n")), "files": .array(files)])
             Haptic.done()
+            await log("shared", "\(summary), sent in \(Int(Date().timeIntervalSince(began) * 1000)) ms")
             context?.completeRequest(returningItems: nil)
         } catch {
             Haptic.fail()
             phase = "ready"
             problem = "Nie udało się wysłać. Sprawdź połączenie i spróbuj jeszcze raz."
+            await log("share failed", "\(summary), \(error.brief) after \(Int(Date().timeIntervalSince(began) * 1000)) ms")
         }
     }
 

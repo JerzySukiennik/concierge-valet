@@ -177,6 +177,7 @@ struct Composer: View {
                 model.say("Nic nie usłyszałem")
                 return
             }
+            Journal.shared.note("dictation used", now ? "sent at once" : "put in the field")
             text = text.trimmingCharacters(in: .whitespaces).isEmpty ? said : "\(text) \(said)"
             if now { send() } else { focus.wrappedValue = true }
         }
@@ -184,7 +185,11 @@ struct Composer: View {
 
     private func take(_ items: [PhotosPickerItem]) async {
         for item in items {
-            guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data), let pick = Composer.shrink(image, name: "Zdjęcie.jpg") else { continue }
+            guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data), let pick = Composer.shrink(image, name: "Zdjęcie.jpg") else {
+                Journal.shared.note("attachment: photo not readable", item.supportedContentTypes.first?.identifier ?? "")
+                model.say("Nie udało się wczytać zdjęcia")
+                continue
+            }
             picks.append(pick)
         }
     }
@@ -193,8 +198,13 @@ struct Composer: View {
         for url in urls.prefix(6) {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else { continue }
+            guard let data = try? Data(contentsOf: url) else {
+                Journal.shared.note("attachment: file not readable", url.pathExtension)
+                model.say("Nie udało się wczytać pliku")
+                continue
+            }
             if data.count > 12_000_000 {
+                Journal.shared.note("attachment: file too big", "\(data.count / 1_048_576) MB, \(url.pathExtension)")
                 model.say("Plik jest za duży (limit 12 MB)")
                 continue
             }

@@ -1,4 +1,4 @@
-/* Read-only look into the owner's thread with Valet, for diagnosing what the agent did: prints the latest messages with their cards, and with --trace the tools each turn called, their inputs and results. Usage: node Niepotrzebne/watek.mjs [--n 40] [--before ID] [--trace] [--full] [--local]. */
+/* Read-only look into the owner's thread with Valet, for diagnosing what the agent did: prints the latest messages with their cards, and with --trace the tools each turn called, their inputs and results. With --log it prints the diagnostic journal the iPhone app keeps (launches, connection drops, voice, dictation, sharing), without message content. Usage: node Niepotrzebne/watek.mjs [--n 40] [--before ID] [--trace | --log] [--full] [--local]. */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -23,7 +23,10 @@ async function get(path) {
 const count = Math.max(1, Math.min(400, +value("n", 40)));
 let before = +value("before", 0) || null;
 
-if (flag("trace")) {
+if (flag("log")) {
+  const { log } = await get(`/api/log?n=${Math.min(300, count)}${before ? `&before=${before}` : ""}`).catch((err) => { console.log(/HTTP 404/.test(err.message) ? "Ten serwer nie zbiera jeszcze dziennika apki." : err.message); process.exit(1); });
+  for (const e of log.reverse()) console.log(`${when(e.ts)} ${String(e.app).padEnd(5)} ${e.what}${e.detail ? `: ${clip(e.detail)}` : ""}`);
+} else if (flag("trace")) {
   const { trace } = await get(`/api/trace?n=${Math.min(100, count)}${before ? `&before=${before}` : ""}`).catch((err) => { console.log(/HTTP 404/.test(err.message) ? "Ten serwer nie zapisuje jeszcze kroków Valeta (wersja sprzed zapisu tur)." : err.message); process.exit(1); });
   for (const t of trace.reverse()) {
     console.log(`\n=== tura ${t.id} · ${when(t.ts)} · ${t.kind} · ${t.model} · ${(t.ms / 1000).toFixed(1)} s · ${t.usd.toFixed(4)} USD${t.origin ? ` · wiadomość #${t.origin}` : ""}`);

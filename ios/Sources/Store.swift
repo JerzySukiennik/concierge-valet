@@ -2,8 +2,6 @@
 import Foundation
 import SwiftUI
 
-struct APIError: Error { let status: Int }
-
 @MainActor @Observable
 final class AppModel {
     static let base = URL(string: ProcessInfo.processInfo.environment["VALET_API"] ?? "https://concierge-valet-api.kalakasanyt.workers.dev")!
@@ -32,6 +30,9 @@ final class AppModel {
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
     @ObservationIgnored private var retry: Double = 1
     @ObservationIgnored private var heardAt = Date()
+    @ObservationIgnored private var lostAt: Date?
+    @ObservationIgnored private var tries = 0
+    @ObservationIgnored private var synced = false
     @ObservationIgnored private var pinger: Task<Void, Never>?
     @ObservationIgnored private var saver: Task<Void, Never>?
     @ObservationIgnored private var calm: Task<Void, Never>?
@@ -45,6 +46,14 @@ final class AppModel {
             UserDefaults.standard.set(found, forKey: "token")
         }
         if let data = try? Data(contentsOf: cacheURL), let boot = JSON.parse(data), !token.isEmpty { apply(boot, fresh: false) }
+        _ = Journal.started
+        Journal.shared.post = { [weak self] entries in
+            guard let self, self.paired else { return false }
+            return (try? await self.call("/api/log", ["app": "ios", "entries": .array(entries)])) != nil
+        }
+        let unclean = UserDefaults.standard.bool(forKey: "running")
+        UserDefaults.standard.set(true, forKey: "running")
+        Journal.shared.note("launch", "\(Journal.build), \(messages.count) messages from cache\(unclean ? ", previous run ended without going to background" : "")")
     }
 
     var paired: Bool { !token.isEmpty }
@@ -85,8 +94,10 @@ final class AppModel {
 
     func resume() {
         active = true
+        UserDefaults.standard.set(true, forKey: "running")
         guard paired else { return }
         if let stale = socket, Date().timeIntervalSince(heardAt) > 30 {
+            Journal.shared.note("socket stale on return", "silent for \(Int(Date().timeIntervalSince(heardAt))) s")
             socket = nil
             pinger?.cancel()
             stale.cancel(with: .goingAway, reason: nil)
@@ -116,7 +127,13 @@ final class AppModel {
             apply(try await call("/api/boot"), fresh: true)
             setOnline(true)
             persist()
+            if !synced {
+                synced = true
+                Journal.shared.note("first sync", "\(Journal.since(Journal.started)) after start")
+            }
+            await Journal.shared.flush()
         } catch {
+            lost("sync refused, \(error.brief)")
             setOnline(false)
         }
     }
@@ -180,6 +197,7 @@ final class AppModel {
 
     func connect() {
         guard paired, socket == nil else { return }
+        if lostAt != nil { tries += 1 }
         Task {
             do {
                 let ticket = try await call("/api/ticket", [:])["ticket"].text
@@ -195,21 +213,30 @@ final class AppModel {
                 heardAt = Date()
                 pinger = Task { [weak self] in
                     while !Task.isCancelled {
+                        try? await task.send(.string("ping"))
                         try? await Task.sleep(for: .seconds(25))
                         guard let self, !Task.isCancelled else { return }
                         if Date().timeIntervalSince(self.heardAt) > 65 {
+                            Journal.shared.note("socket silent, reconnecting")
                             task.cancel(with: .goingAway, reason: nil)
                             return
                         }
-                        try? await task.send(.string("ping"))
                     }
                 }
                 await listen(task)
             } catch {
+                lost("no ticket, \(error.brief)")
                 setOnline(false)
                 again()
             }
         }
+    }
+
+    private func lost(_ why: String) {
+        guard lostAt == nil, active else { return }
+        lostAt = Date()
+        tries = 0
+        Journal.shared.note("connection lost", why)
     }
 
     private func listen(_ task: URLSessionWebSocketTask) async {
@@ -220,6 +247,10 @@ final class AppModel {
             if !heard {
                 heard = true
                 retry = 1
+                if let since = lostAt {
+                    Journal.shared.note("connection back", "after \(Int(Date().timeIntervalSince(since))) s, \(tries) tries")
+                    lostAt = nil
+                }
             }
             switch message {
             case .string(let text): if text != "pong", let event = JSON.parse(text) { handle(event) }
@@ -230,6 +261,7 @@ final class AppModel {
         guard socket === task else { return }
         socket = nil
         pinger?.cancel()
+        lost(heard ? "socket closed after working" : "socket closed before the first message")
         setOnline(false)
         again()
     }
@@ -247,6 +279,9 @@ final class AppModel {
 
     func close() {
         active = false
+        lostAt = nil
+        UserDefaults.standard.set(false, forKey: "running")
+        Task { await Journal.shared.flush() }
         pinger?.cancel()
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
@@ -330,6 +365,7 @@ final class AppModel {
             outgoing.removeAll { $0.id == item.id }
         } catch {
             if let i = outgoing.firstIndex(where: { $0.id == item.id }) { outgoing[i].failed = true }
+            Journal.shared.note("send failed", "\(item.picks.count) attachments, \(item.picks.reduce(0) { $0 + $1.data.count } / 1024) KB, \(error.brief)")
             Haptic.fail()
         }
     }
@@ -352,7 +388,10 @@ final class AppModel {
     func act(_ path: String, on message: Message, _ body: JSON, key: String) async -> Bool {
         var payload = body
         payload["msg"] = .number(Double(message.id))
-        guard let reply = try? await call(path, payload, timeout: 60) else { return false }
+        guard let reply = try? await call(path, payload, timeout: 60) else {
+            Journal.shared.note("card action failed", "\(path) \(body["act"].text)")
+            return false
+        }
         if !reply[key].isNull, let i = messages.firstIndex(where: { $0.id == message.id }) {
             var raw = messages[i].raw, data = messages[i].data
             data[key] = reply[key]
